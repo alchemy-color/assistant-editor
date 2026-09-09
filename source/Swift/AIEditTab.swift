@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct AIEditTab: View {
     @ObservedObject var subStore: SubtitleStore
@@ -12,10 +13,18 @@ struct AIEditTab: View {
         self.docStore = docStore
     }
     @AppStorage("aiEditRetrievalExpanded") private var retrievalExpanded = false
+    @AppStorage("aiEditTimelineExpanded") private var timelineExpanded = true
     @State private var treatmentExpanded = false
 
     private var projectThemes: [ProjectTheme] {
         (try? JSONDecoder().decode([ProjectTheme].self, from: projectThemesJSON.data(using: .utf8) ?? Data())) ?? []
+    }
+
+    private var timelineSummary: String {
+        var parts: [String] = []
+        if let name = aiStore.parsedTitle, !name.isEmpty { parts.append(name) }
+        if let dur = aiStore.estimatedDuration, dur > 0 { parts.append("~\(Int(dur))s") }
+        return parts.isEmpty ? "unnamed" : parts.joined(separator: " \u{00B7} ")
     }
 
     @StateObject private var aiStore = AIEditStore()
@@ -26,6 +35,8 @@ struct AIEditTab: View {
     @State private var showClearAlert = false
     @State private var materialTrees: [MaterialNode] = []
     @State private var materialsExpanded = true
+    @State private var draggedBeatID: UUID?
+    @State private var dropTargets: [UUID: Bool] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -122,60 +133,99 @@ struct AIEditTab: View {
     var leftPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Edit") {
-                if !aiStore.scriptText.isEmpty || !aiStore.beats.isEmpty {
-                    Button(action: { aiStore.clearAll() }) {
-                        Image(systemName: "trash")
-                            .help("Clear treatment, beats, and clips")
+                Group {
+                    if !aiStore.folders.isEmpty {
+                        HStack(spacing: 6) {
+                            StatusChip(label: "Synopsis", count: aiStore.materials.synopsisCount, icon: "doc.text")
+                            StatusChip(label: "Chapters", count: aiStore.materials.chaptersCount, icon: "flag")
+                            StatusChip(label: "Transcripts", count: aiStore.materials.transcriptCount, icon: "doc.plaintext")
+                            StatusChip(label: "Subtitles", count: aiStore.materials.subtitleCount, icon: "captions.bubble")
+
+                            Button(action: { aiStore.rescanMaterials() }) {
+                                Image(systemName: "arrow.clockwise")
+                                    .scaledFont(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Rescan materials")
+
+                            if !aiStore.scriptText.isEmpty || !aiStore.beats.isEmpty {
+                                Divider().frame(height: 12)
+                                Button(action: { aiStore.clearAll() }) {
+                                    Image(systemName: "trash")
+                                        .help("Clear treatment, beats, and clips")
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(aiStore.isParsing || aiStore.isAssembling)
+                            }
+                        }
+                    } else if !aiStore.scriptText.isEmpty || !aiStore.beats.isEmpty {
+                        Button(action: { aiStore.clearAll() }) {
+                            Image(systemName: "trash")
+                                .help("Clear treatment, beats, and clips")
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(aiStore.isParsing || aiStore.isAssembling)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(aiStore.isParsing || aiStore.isAssembling)
                 }
             }
 
-            if !aiStore.folders.isEmpty {
-                HStack(spacing: 6) {
-                    StatusChip(label: "Synopsis", count: aiStore.materials.synopsisCount, icon: "doc.text")
-                    StatusChip(label: "Chapters", count: aiStore.materials.chaptersCount, icon: "flag")
-                    StatusChip(label: "Transcripts", count: aiStore.materials.transcriptCount, icon: "doc.plaintext")
-                    StatusChip(label: "Subtitles", count: aiStore.materials.subtitleCount, icon: "captions.bubble")
-                    Spacer()
-                    Button(action: { aiStore.rescanMaterials() }) {
-                        Image(systemName: "arrow.clockwise")
-                            .scaledFont(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Rescan materials")
-                }
-                .padding(.horizontal, UIDesign.padH)
-                .padding(.bottom, 8)
-            }
+            // MARK: Timeline metadata — names the edit and its intent
 
             CollapseHeader(
-                title: "Retrieval",
-                systemImage: "slider.horizontal.3",
-                summary: "\(Int(aiStore.candidateCap)) candidates · ≤\(Int(aiStore.maxClipsPerBeat)) clips\(aiStore.useSynopsisInSelection ? " · synopsis" : "")",
-                isCollapsed: !retrievalExpanded,
-                onToggle: { withAnimation(.easeInOut(duration: 0.15)) { retrievalExpanded.toggle() } }
+                title: "Timeline",
+                systemImage: "film",
+                summary: timelineSummary,
+                isCollapsed: !timelineExpanded,
+                onToggle: { withAnimation(.easeInOut(duration: 0.15)) { timelineExpanded.toggle() } }
             )
             .padding(.horizontal, UIDesign.padH)
             .padding(.bottom, 8)
 
-            if retrievalExpanded {
-                VStack(alignment: .leading, spacing: 8) {
-                    CompactSliderRow(
-                        label: "Candidates", value: $aiStore.candidateCap,
-                        range: 8...48, step: 4, format: "%.0f", labelWidth: 80,
-                        onValueChange: {}
-                    )
-                    CompactSliderRow(
-                        label: "Clips / beat", value: $aiStore.maxClipsPerBeat,
-                        range: 1...8, step: 1, format: "%.0f", labelWidth: 80,
-                        onValueChange: {}
-                    )
-                    Toggle("Ground selection in synopses", isOn: $aiStore.useSynopsisInSelection)
-                        .scaledFont(.caption)
+            if timelineExpanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Text("Name")
+                            .scaledFont(.caption2, weight: .semibold)
+                            .foregroundColor(.secondary)
+                            .frame(width: 34, alignment: .trailing)
+                        TextField("e.g. Relics of the Coast \u{2014} Teaser",
+                                  text: Binding(
+                                    get: { aiStore.parsedTitle ?? "" },
+                                    set: { aiStore.parsedTitle = $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }),
+                                  prompt: Text("Timeline name \u{2014} names the Resolve timeline")
+                                    .foregroundColor(.secondary.opacity(0.5)))
+                            .textFieldStyle(.roundedBorder)
+                            .scaledFont(.caption)
+                        TextField("est", value: Binding(
+                            get: { aiStore.estimatedDuration ?? 0 },
+                            set: { aiStore.estimatedDuration = $0 > 0 ? $0 : nil }
+                        ), format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .scaledFont(.caption, monospacedDigit: true)
+                            .frame(width: 52)
+                            .help("Estimated timeline length in seconds (editable)")
+                        Text("sec")
+                            .scaledFont(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("Intent")
+                            .scaledFont(.caption2, weight: .semibold)
+                            .foregroundColor(.secondary)
+                            .frame(width: 34, alignment: .trailing)
+                            .padding(.top, 5)
+                        TextField("Short description \u{2014} what this edit is trying to say\u{2026}",
+                                  text: aiStore.intentBinding,
+                                  axis: .vertical)
+                            .lineLimit(1...3)
+                            .textFieldStyle(.roundedBorder)
+                            .scaledFont(.caption)
+                    }
+                    Toggle("Append timestamp to the timeline name (_HHMMSS)", isOn: $aiStore.includeNameTimestamp)
                         .toggleStyle(.checkbox)
+                        .scaledFont(.caption2)
+                        .help("Append _HHMMSS to the created timeline name")
                 }
                 .padding(.horizontal, UIDesign.padH)
                 .padding(.bottom, 8)
@@ -234,6 +284,38 @@ struct AIEditTab: View {
                 .padding(.bottom, 8)
             }
 
+            // MARK: Retrieval tuning (advanced — last in the setup cluster)
+
+            CollapseHeader(
+                title: "Retrieval",
+                systemImage: "slider.horizontal.3",
+                summary: "\(Int(aiStore.candidateCap)) candidates · ≤\(Int(aiStore.maxClipsPerBeat)) clips\(aiStore.useSynopsisInSelection ? " · synopsis" : "")",
+                isCollapsed: !retrievalExpanded,
+                onToggle: { withAnimation(.easeInOut(duration: 0.15)) { retrievalExpanded.toggle() } }
+            )
+            .padding(.horizontal, UIDesign.padH)
+            .padding(.bottom, 8)
+
+            if retrievalExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    CompactSliderRow(
+                        label: "Candidates", value: $aiStore.candidateCap,
+                        range: 8...48, step: 4, format: "%.0f", labelWidth: 80,
+                        onValueChange: {}
+                    )
+                    CompactSliderRow(
+                        label: "Clips / beat", value: $aiStore.maxClipsPerBeat,
+                        range: 1...8, step: 1, format: "%.0f", labelWidth: 80,
+                        onValueChange: {}
+                    )
+                    Toggle("Ground selection in synopses", isOn: $aiStore.useSynopsisInSelection)
+                        .scaledFont(.caption)
+                        .toggleStyle(.checkbox)
+                }
+                .padding(.horizontal, UIDesign.padH)
+                .padding(.bottom, 8)
+            }
+
             Divider()
 
             // MARK: Beat card list
@@ -264,6 +346,7 @@ struct AIEditTab: View {
                                 beatIndex: idx,
                                 totalBeats: aiStore.beats.count,
                                 busy: aiStore.isParsing || aiStore.isAssembling,
+                                isDropTarget: dropTargets[beat.id] == true,
                                 onDelete: { aiStore.removeBeat(at: IndexSet(integer: idx)) },
                                 onMoveUp: idx > 0
                                     ? { aiStore.moveBeat(from: IndexSet(integer: idx), to: idx - 1) }
@@ -275,6 +358,13 @@ struct AIEditTab: View {
                                     ? { aiStore.findClips(for: idx, subStore: subStore, docStore: docStore, themes: projectThemes) }
                                     : nil
                             )
+                            .onDrag {
+                                draggedBeatID = beat.id
+                                return NSItemProvider(object: beat.id.uuidString as NSString)
+                            }
+                            .onDrop(of: [UTType.text], isTargeted: dropTargetBinding(for: beat.id)) { _ in
+                                handleDrop(targetID: beat.id)
+                            }
                         }
                     }
                     .padding(.horizontal, UIDesign.padH)
@@ -293,9 +383,25 @@ struct AIEditTab: View {
                     .controlSize(.small)
                     .disabled(aiStore.isParsing || aiStore.isAssembling)
 
+                    Button(action: { aiStore.undo() }) {
+                        Image(systemName: "arrow.uturn.backward")
+                            .scaledFont(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!aiStore.canUndo || aiStore.isParsing || aiStore.isAssembling)
+                    .help("Undo last beat change (add, delete, reorder, or edit)")
+
+                    Button(action: { aiStore.redo() }) {
+                        Image(systemName: "arrow.uturn.forward")
+                            .scaledFont(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!aiStore.canRedo || aiStore.isParsing || aiStore.isAssembling)
+                    .help("Redo last undone beat change")
+
                     if !aiStore.beats.isEmpty {
                         Spacer()
-                        Button(action: { aiStore.beats.removeAll() }) {
+                        Button(action: { aiStore.removeAllBeats() }) {
                             HStack(spacing: 4) {
                                 Image(systemName: "trash")
                                     .scaledFont(.caption2)
@@ -317,48 +423,27 @@ struct AIEditTab: View {
 
             Divider()
 
-            // MARK: Timeline name + Create Edit
+            // MARK: Create Edit
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    TextField("Timeline name",
-                              text: Binding(
-                                get: { aiStore.parsedTitle ?? "" },
-                                set: { aiStore.parsedTitle = $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }),
-                              prompt: Text("Timeline name \u{2014} used when creating the timeline")
-                                .foregroundColor(.secondary.opacity(0.5)))
-                        .textFieldStyle(.roundedBorder)
-                        .scaledFont(.caption)
-                    Toggle("Include timestamp", isOn: $aiStore.includeNameTimestamp)
-                        .toggleStyle(.checkbox)
-                        .scaledFont(.caption2)
-                    if let dur = aiStore.estimatedDuration {
-                        Text("~\(Int(dur))s est")
-                            .scaledFont(.caption2, monospacedDigit: true)
-                            .foregroundColor(.secondary)
+            Button(action: {
+                aiStore.findAllClips(subStore: subStore, docStore: docStore, themes: projectThemes)
+            }) {
+                HStack(spacing: 6) {
+                    if aiStore.isAssembling {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                    } else {
+                        Image(systemName: "wand.and.stars")
                     }
+                    Text(aiStore.isAssembling ? "Finding clips\u{2026}" : "Create Edit")
+                        .frame(maxWidth: .infinity)
                 }
-
-                Button(action: {
-                    aiStore.findAllClips(subStore: subStore, docStore: docStore, themes: projectThemes)
-                }) {
-                    HStack(spacing: 6) {
-                        if aiStore.isAssembling {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                        } else {
-                            Image(systemName: "wand.and.stars")
-                        }
-                        Text(aiStore.isAssembling ? "Finding clips\u{2026}" : "Create Edit")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .primaryActionBar()
                 .frame(maxWidth: .infinity)
-                .keyboardShortcut(.defaultAction)
-                .disabled(aiStore.beats.isEmpty || aiStore.isParsing || aiStore.isAssembling)
             }
+            .primaryActionBar()
+            .frame(maxWidth: .infinity)
+            .keyboardShortcut(.defaultAction)
+            .disabled(aiStore.beats.isEmpty || aiStore.isParsing || aiStore.isAssembling)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
@@ -406,7 +491,7 @@ struct AIEditTab: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(aiStore.isParsing || aiStore.isAssembling)
-                    Button(action: { aiStore.beats.removeAll() }) {
+                    Button(action: { aiStore.removeAllBeats() }) {
                         Image(systemName: "trash")
                             .help("Remove all beats")
                     }
@@ -632,14 +717,12 @@ struct AIEditTab: View {
     var beatsList: some View {
         List {
             ForEach(Array(aiStore.beats.enumerated()), id: \.element.id) { idx, beat in
-                BeatRow(beat: binding(for: idx), beatIndex: idx, totalBeats: aiStore.beats.count, hasFolder: !aiStore.folders.isEmpty, onDelete: {
-                    aiStore.removeBeat(at: IndexSet(integer: idx))
-                }, onMoveUp: idx > 0 ? { moveBeat(from: idx, to: idx - 1) } : nil,
-                onMoveDown: idx < aiStore.beats.count - 1 ? { moveBeat(from: idx, to: idx + 1) } : nil,
-                onFindClips: (!aiStore.folders.isEmpty && !aiStore.isAssembling && !aiStore.isParsing) ? {
-                    aiStore.findClips(for: idx, subStore: subStore, docStore: docStore, themes: projectThemes)
-                } : nil,
-                busy: aiStore.isParsing || aiStore.isAssembling)
+                BeatRow(
+                    beat: binding(for: idx),
+                    beatIndex: idx,
+                    hasFolder: !aiStore.folders.isEmpty,
+                    busy: aiStore.isParsing || aiStore.isAssembling
+                )
             }
             .onMove { source, dest in
                 guard !aiStore.isParsing, !aiStore.isAssembling else { return }
@@ -653,14 +736,39 @@ struct AIEditTab: View {
 
     private func binding(for index: Int) -> Binding<ScriptBeat> {
         Binding(
-            get: { aiStore.beats[index] },
-            set: { aiStore.beats[index] = $0 }
+            get: {
+                // Deleting a beat shifts indices; SwiftUI can re-evaluate a
+                // disappearing row's binding with a stale index → out-of-bounds trap.
+                aiStore.beats.indices.contains(index) ? aiStore.beats[index] : Self.staleBeat
+            },
+            set: { newValue in
+                guard aiStore.beats.indices.contains(index) else { return }
+                aiStore.beats[index] = newValue
+            }
         )
     }
 
-    private func moveBeat(from source: Int, to dest: Int) {
-        let idxSet = IndexSet(integer: source)
-        aiStore.moveBeat(from: idxSet, to: dest)
+    private static let staleBeat = ScriptBeat(
+        index: 0, title: "", description: "",
+        searchQueries: [], targetDuration: nil, mood: nil, clips: []
+    )
+
+    private func dropTargetBinding(for id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { dropTargets[id] ?? false },
+            set: { dropTargets[id] = $0 }
+        )
+    }
+
+    /// Moves the dragged beat onto the drop target's position.
+    private func handleDrop(targetID: UUID) -> Bool {
+        let fromID = draggedBeatID
+        draggedBeatID = nil
+        dropTargets[targetID] = false
+        if let fromID {
+            aiStore.reorderBeat(fromId: fromID, toId: targetID)
+        }
+        return true
     }
 
     /// Re-loads persisted folders once per launch so materials are ready
@@ -792,9 +900,7 @@ struct AIEditTab: View {
                 do {
                     let result = try Self.parseResponse(cleaned)
                     DispatchQueue.main.async {
-                        aiStore.parsedTitle = result.title
-                        aiStore.estimatedDuration = result.estimatedDuration
-                        aiStore.beats = result.beats.enumerated().map { idx, p in
+                        let newBeats = result.beats.enumerated().map { idx, p in
                             ScriptBeat(
                                 index: idx + 1,
                                 title: p.title,
@@ -805,6 +911,7 @@ struct AIEditTab: View {
                                 clips: [],
                             )
                         }
+                        aiStore.applyParsedBeats(newBeats, title: result.title, duration: result.estimatedDuration)
                         aiStore.isParsing = false
                         aiStore.statusMessage = "\(aiStore.beats.count) beat(s) parsed"
                     }
@@ -940,21 +1047,14 @@ struct AIEditTab: View {
     }
 }
 
-// MARK: - Beat Row
+// MARK: - Beat Row (right panel — title + clips only)
 
 struct BeatRow: View {
     @Binding var beat: ScriptBeat
     let beatIndex: Int
-    let totalBeats: Int
     var hasFolder: Bool = false
-    let onDelete: () -> Void
-    let onMoveUp: (() -> Void)?
-    let onMoveDown: (() -> Void)?
-    var onFindClips: (() -> Void)? = nil
     var busy: Bool = false
     @State private var clipsExpanded = false
-    @State private var editorExpanded = false
-    @State private var newQuery = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -964,17 +1064,18 @@ struct BeatRow: View {
                     .foregroundColor(.secondary)
                     .frame(width: 24, alignment: .trailing)
 
-                TextField("Beat title", text: $beat.title)
-                    .textFieldStyle(.plain)
-                    .scaledFont(.subheadline, weight: .semibold)
+                Text(beat.title.isEmpty ? "Untitled" : beat.title)
+                    .scaledFont(.headline, weight: .semibold)
+                    .lineLimit(1)
 
-                if let mood = beat.mood {
+                if let mood = beat.mood, !mood.isEmpty {
                     Text(mood)
                         .scaledFont(.caption2)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.accentColor.opacity(0.1))
                         .cornerRadius(4)
+                        .lineLimit(1)
                 }
 
                 Spacer()
@@ -984,64 +1085,6 @@ struct BeatRow: View {
                         .scaledFont(.caption)
                         .foregroundColor(.secondary)
                 }
-
-                if let onFind = onFindClips {
-                    Button(action: onFind) {
-                        Image(systemName: "magnifyingglass")
-                            .scaledFont(.caption)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Find matching clips for this beat")
-                }
-
-                Button(action: { editorExpanded.toggle() }) {
-                    Image(systemName: editorExpanded ? "chevron.up.circle" : "pencil.and.list.clipboard")
-                        .scaledFont(.caption)
-                        .foregroundColor(editorExpanded ? .accentColor : .secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Edit beat details (description, queries, mood, duration)")
-
-                Menu {
-                    if let onMoveUp { Button("Move Up") { onMoveUp() }.disabled(busy) }
-                    if let onMoveDown { Button("Move Down") { onMoveDown() }.disabled(busy) }
-                    Divider()
-                    Button("Delete", role: .destructive) { onDelete() }
-                        .disabled(busy)
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .scaledFont(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 20)
-            }
-
-            TextField("Description", text: $beat.description)
-                .textFieldStyle(.plain)
-                .scaledFont(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
-
-            if !beat.searchQueries.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        ForEach(beat.searchQueries, id: \.self) { query in
-                            Text(query)
-                                .scaledFont(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(3)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-            }
-
-            if editorExpanded {
-                beatEditor
             }
 
             if !beat.clips.isEmpty {
@@ -1074,8 +1117,8 @@ struct BeatRow: View {
                         .scaledFont(.caption2)
                         .foregroundColor(hasFolder ? .orange : .secondary.opacity(0.5))
                     Text(hasFolder
-                         ? "No matching clips yet — click the magnifying glass to search"
-                         : "No source folder — clips unavailable")
+                         ? "No matching clips yet \u{2014} run Create Edit to search"
+                         : "No source folder \u{2014} clips unavailable")
                         .scaledFont(.caption2)
                         .foregroundColor(hasFolder ? .orange.opacity(0.8) : .secondary.opacity(0.5))
                 }
@@ -1084,105 +1127,6 @@ struct BeatRow: View {
         .padding(.vertical, 4)
         .padding(.horizontal, 4)
     }
-
-    // MARK: Thorough beat editor
-
-    private var beatEditor: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Description")
-                .scaledFont(.caption2)
-                .foregroundColor(.secondary)
-            TextEditor(text: $beat.description)
-                .scaledFont(.caption)
-                .frame(height: 64)
-                .border(Color.gray.opacity(0.2))
-
-            Text("Search queries — phrases likely in the speakers' own words")
-                .scaledFont(.caption2)
-                .foregroundColor(.secondary)
-            ForEach(beat.searchQueries, id: \.self) { query in
-                HStack(spacing: 6) {
-                    Text(query)
-                        .scaledFont(.caption)
-                        .lineLimit(1)
-                    Spacer()
-                    Button(action: { removeQuery(query) }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .scaledFont(.caption2)
-                            .foregroundColor(.secondary.opacity(0.7))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Remove query")
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .cornerRadius(4)
-            }
-            HStack(spacing: 6) {
-                TextField("Add query…", text: $newQuery)
-                    .textFieldStyle(.roundedBorder)
-                    .scaledFont(.caption)
-                    .onSubmit(addQuery)
-                Button("Add", action: addQuery)
-                    .controlSize(.small)
-                    .disabled(newQuery.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-
-            HStack(spacing: 12) {
-                HStack(spacing: 4) {
-                    Text("Mood")
-                        .scaledFont(.caption2)
-                        .foregroundColor(.secondary)
-                    TextField("intimate", text: moodBinding)
-                        .textFieldStyle(.roundedBorder)
-                        .scaledFont(.caption)
-                        .frame(width: 90)
-                }
-                HStack(spacing: 4) {
-                    Text("Target (s)")
-                        .scaledFont(.caption2)
-                        .foregroundColor(.secondary)
-                    TextField("10", value: durationBinding, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .scaledFont(.caption, monospacedDigit: true)
-                        .frame(width: 50)
-                }
-                Spacer()
-            }
-        }
-        .padding(10)
-        .background(Color.primary.opacity(0.03))
-        .cornerRadius(8)
-    }
-
-    private var moodBinding: Binding<String> {
-        Binding(
-            get: { beat.mood ?? "" },
-            set: { beat.mood = $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
-        )
-    }
-
-    private var durationBinding: Binding<Double?> {
-        Binding(
-            get: { beat.targetDuration },
-            set: { beat.targetDuration = $0.flatMap { $0 > 0 ? $0 : nil } }
-        )
-    }
-
-    private func addQuery() {
-        let q = newQuery.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { return }
-        if !beat.searchQueries.contains(q) {
-            beat.searchQueries.append(q)
-        }
-        newQuery = ""
-    }
-
-    private func removeQuery(_ q: String) {
-        beat.searchQueries.removeAll { $0 == q }
-    }
-
 }
 
 // MARK: - Clip Row
@@ -1258,12 +1202,13 @@ struct LeftBeatCard: View {
     let beatIndex: Int
     let totalBeats: Int
     var busy: Bool = false
+    var isDropTarget: Bool = false
     let onDelete: () -> Void
     let onMoveUp: (() -> Void)?
     let onMoveDown: (() -> Void)?
     var onFindClips: (() -> Void)? = nil
 
-    @State private var editorExpanded = false
+    @State private var editorExpanded = true
     @State private var newQuery = ""
 
     var body: some View {
@@ -1276,7 +1221,7 @@ struct LeftBeatCard: View {
 
                 TextField("Beat title", text: $beat.title)
                     .textFieldStyle(.plain)
-                    .scaledFont(.subheadline, weight: .semibold)
+                    .scaledFont(.headline, weight: .semibold)
 
                 if let mood = beat.mood, !mood.isEmpty {
                     Text(mood)
@@ -1299,7 +1244,7 @@ struct LeftBeatCard: View {
                 if let onFind = onFindClips {
                     Button(action: onFind) {
                         Image(systemName: "magnifyingglass")
-                            .scaledFont(.caption)
+                            .scaledFont(.body)
                     }
                     .buttonStyle(.plain)
                     .help("Find matching clips for this beat")
@@ -1307,7 +1252,7 @@ struct LeftBeatCard: View {
 
                 Button(action: { editorExpanded.toggle() }) {
                     Image(systemName: editorExpanded ? "chevron.up.circle" : "pencil.and.list.clipboard")
-                        .scaledFont(.caption)
+                        .scaledFont(.body)
                         .foregroundColor(editorExpanded ? .accentColor : .secondary)
                 }
                 .buttonStyle(.plain)
@@ -1321,43 +1266,49 @@ struct LeftBeatCard: View {
                         .disabled(busy)
                 } label: {
                     Image(systemName: "ellipsis")
-                        .scaledFont(.caption)
+                        .scaledFont(.body)
                         .foregroundColor(.secondary)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .frame(width: 20)
-            }
 
-            TextField("Description — the beat's topic and narrative function", text: $beat.description)
-                .textFieldStyle(.plain)
-                .scaledFont(.caption)
-                .foregroundColor(.secondary)
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .scaledFont(.body)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
+                .help("Delete this beat")
+            }
 
             if editorExpanded {
                 editorBody
             }
         }
         .padding(8)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(isDropTarget
+                    ? Color.accentColor.opacity(0.1)
+                    : Color(nsColor: .controlBackgroundColor))
         .cornerRadius(6)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.secondary.opacity(0.15))
+                .stroke(isDropTarget ? Color.accentColor : Color.secondary.opacity(0.15))
         )
     }
 
     private var editorBody: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Description")
+            Text("Description \u{2014} the beat's topic and narrative function")
                 .scaledFont(.caption2)
                 .foregroundColor(.secondary)
             TextEditor(text: $beat.description)
-                .scaledFont(.caption)
-                .frame(height: 56)
+                .scaledFont(.subheadline)
+                .frame(minHeight: 56)
                 .border(Color.gray.opacity(0.2))
 
-            Text("Search queries — phrases likely in the speakers' own words")
+            Text("Search queries \u{2014} phrases likely in the speakers' own words")
                 .scaledFont(.caption2)
                 .foregroundColor(.secondary)
             if !beat.searchQueries.isEmpty {
@@ -1366,7 +1317,7 @@ struct LeftBeatCard: View {
                         ForEach(beat.searchQueries, id: \.self) { query in
                             HStack(spacing: 2) {
                                 Text(query)
-                                    .scaledFont(.caption2)
+                                    .scaledFont(.caption)
                                     .lineLimit(1)
                                 Button(action: { beat.searchQueries.removeAll { $0 == query } }) {
                                     Image(systemName: "xmark.circle.fill")
@@ -1377,7 +1328,7 @@ struct LeftBeatCard: View {
                             }
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color(nsColor: .controlBackgroundColor))
+                            .background(Color.primary.opacity(0.05))
                             .cornerRadius(3)
                         }
                     }

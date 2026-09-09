@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/alchemy-color/assistant-editor/security/advisories
+    about: Report security issues privately — please do not file a public bug.
+  - name: Porting questions
+    url: https://github.com/alchemy-color/assistant-editor/discussions
+    about: Ask questions about porting this reference app to Linux/Windows.

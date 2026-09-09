@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a feature or improvement for Assistant Editor
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: "Suggestions are welcome, especially from porters on Linux/Windows — describe the problem you're solving, not just the solution you want."
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is missing or painful today? Be concrete about the editing scenario.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed feature
+      description: Describe the behavior you'd like (and, if relevant, which platform layer it touches: Swift UI, Python pipeline, or the script interface).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you already use.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This fits the local-first, no-cloud principle (LLM runs on the user's machine)
+        - label: I understand this repo is a porting reference, not a shipped product

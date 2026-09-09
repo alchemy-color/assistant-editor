@@ -1,10 +1,14 @@
+<p align="center">
+  <img src="icon.png" width="200" alt="Assistant Editor app icon — graphite squircle with the Didot Æ monogram">
+</p>
+
 # Assistant Editor
 
 **macOS assistant-editing tool for documentary post-production.** Analyzes interview transcripts/subtitles with a local LLM, generates chapter markers and synopses, searches speech, builds DaVinci Resolve timelines, and offers RAG chat against interview material.
 
 This repository is the **cross-platform porting source**. The reference implementation is a native macOS SwiftUI app; the goal of this repo is to enable third-party developers to produce **Linux and Windows** versions while reusing as much of the existing code as possible — especially the platform-neutral Python pipeline.
 
-> **Status:** macOS reference app is complete (v1.23, structured AI-Edit editor; Sync-by-Transcript parked). Linux/Windows ports are **not built yet** — this repo contains the reference source, the Python pipeline, and detailed porting guides.
+> **Status:** macOS reference app is complete (v1.23, structured AI-Edit editor; Sync-by-Transcript parked; v1.24 AI-Edit UI polish). Linux/Windows ports are **not built yet** — this repo contains the reference source, the Python pipeline, and detailed porting guides.
 
 ---
 
@@ -24,6 +28,15 @@ All AI runs **on-machine** — no cloud API. Two interchangeable local LLM backe
 ```
 assistant-editor/
 ├── README.md                ← this file
+├── icon.png                 ← app icon (1024×1024, programmatic Didot Æ)
+├── CHANGELOG.md             ← version history
+├── SECURITY.md              ← vulnerability reporting + project scope
+├── CODE_OF_CONDUCT.md       ← Contributor Covenant 2.1
+├── .github/
+│   ├── ISSUE_TEMPLATE/      ← bug report + feature request forms
+│   ├── PULL_REQUEST_TEMPLATE.md
+│   ├── FUNDING.yml
+│   └── workflows/           ← macOS CI smoke build (XcodeGen + xcodebuild)
 ├── docs/
 │   ├── ARCHITECTURE.md      ← components, stores, data flow, IPC
 │   ├── MACOS_REFERENCE.md   ← macOS build/deploy, hardcoded paths, Resolve bridge, shortcuts
@@ -39,6 +52,7 @@ assistant-editor/
 │   └── Python/              ← 17 .py scripts (platform-neutral pipeline)
 ├── project.yml              ← XcodeGen spec for the macOS app
 ├── setup.sh                 ← macOS build bootstrap (Xcode)
+├── .gitignore
 └── LICENSE
 ```
 

@@ -1,0 +1,37 @@
+name: macOS build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build macOS reference app
+        run: |
+          xcodebuild \
+            -project "Assistant Editor.xcodeproj" \
+            -scheme "Assistant Editor" \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Python pipeline syntax check
+        run: |
+          for f in source/Python/*.py; do
+            python3 -m py_compile "$f"
+          done
+          echo "All Python scripts compile."

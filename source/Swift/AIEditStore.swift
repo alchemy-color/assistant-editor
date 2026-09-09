@@ -6,6 +6,7 @@ struct AIEditSession: Codable {
     var script: String
     var parsedTitle: String?
     var estimatedDuration: Double?
+    var intent: String?
     var beats: [ScriptBeat]
     var flowNotes: [FlowNote]
 }
@@ -58,6 +59,7 @@ class AIEditStore: ObservableObject {
     @Published var statusMessage = ""
     @Published var parsedTitle: String?
     @Published var estimatedDuration: Double?
+    @Published var intent = ""
     @Published var lastError: String?
     @Published var lastTimelineName: String?
     @Published var resolvedMarkers: [SummaryMarker] = []
@@ -98,13 +100,33 @@ class AIEditStore: ObservableObject {
 
     private var saveCancellable: AnyCancellable?
 
+    // MARK: - Undo / Redo (beats: deletes, reorders, edits)
+
+    @Published private(set) var canUndo = false
+    @Published private(set) var canRedo = false
+
+    private var undoStack: [[ScriptBeat]] = []
+    private var redoStack: [[ScriptBeat]] = []
+    /// Deep-copied state representing the last committed beats (baseline for snapshots).
+    private var committedBeats: [ScriptBeat] = []
+    private var committedSignature = Data()
+    private var isRestoring = false
+
+    var intentBinding: Binding<String> {
+        Binding(get: { self.intent }, set: { self.intent = $0 })
+    }
+
     init() {
         migrateLegacyFolder()
         loadSession()
-        // Persist the whole session (beats, clips, toggles, notes) 600ms after any change settles
+        // Persist the whole session (beats, clips, toggles, notes) 600ms after any change settles.
+        // Also captures typed edits (title/description/queries/mood) as undo points.
         saveCancellable = objectWillChange
             .debounce(for: .milliseconds(600), scheduler: DispatchQueue.main)
-            .sink { [weak self] in self?.saveSession() }
+            .sink { [weak self] in
+                self?.recordEditIfChanged()
+                self?.saveSession()
+            }
     }
 
     private func loadSession() {
@@ -114,8 +136,10 @@ class AIEditStore: ObservableObject {
         savedScript = session.script
         parsedTitle = session.parsedTitle
         estimatedDuration = session.estimatedDuration
+        intent = session.intent ?? ""
         beats = session.beats
         flowNotes = session.flowNotes
+        commit(beats)
     }
 
     func saveSession() {
@@ -123,6 +147,7 @@ class AIEditStore: ObservableObject {
             script: scriptText,
             parsedTitle: parsedTitle,
             estimatedDuration: estimatedDuration,
+            intent: intent.isEmpty ? nil : intent,
             beats: beats,
             flowNotes: flowNotes
         )
@@ -220,28 +245,128 @@ class AIEditStore: ObservableObject {
         beats = []
         parsedTitle = nil
         estimatedDuration = nil
+        intent = ""
         lastError = nil
         statusMessage = ""
         resolvedMarkers = []
+        undoStack = []
+        redoStack = []
+        committedBeats = []
+        committedSignature = Data()
+        canUndo = false
+        canRedo = false
+    }
+
+    // MARK: - Undo / Redo Implementation
+
+    /// Structural signature EXCLUDES clips (find results are not undo points).
+    private func signature(_ list: [ScriptBeat]) -> Data {
+        struct Plain: Codable { var id: String; var index: Int; var title: String; var desc: String; var q: [String]; var target: Double; var mood: String }
+        let stripped = list.map { b in
+            Plain(id: b.id.uuidString, index: b.index, title: b.title,
+                  desc: b.description, q: b.searchQueries,
+                  target: b.targetDuration ?? -1, mood: b.mood ?? "")
+        }
+        return (try? JSONEncoder().encode(stripped)) ?? Data()
+    }
+
+    /// Makes `list` the new committed baseline (no undo point pushed).
+    private func commit(_ list: [ScriptBeat]) {
+        committedBeats = list
+        committedSignature = signature(list)
+    }
+
+    private func pushUndoPoint() {
+        undoStack.append(committedBeats)
+        if undoStack.count > 50 { undoStack.removeFirst() }
+        redoStack.removeAll()
+        canUndo = true
+        canRedo = false
+    }
+
+    /// Debounced: typed edits become undoable once typing pauses.
+    private func recordEditIfChanged() {
+        guard !isRestoring else { return }
+        guard signature(beats) != committedSignature else { return }
+        pushUndoPoint()
+        commit(beats)
+    }
+
+    func undo() {
+        guard let previous = undoStack.popLast() else { return }
+        isRestoring = true
+        redoStack.append(beats)
+        beats = previous
+        commit(beats)
+        isRestoring = false
+        canUndo = !undoStack.isEmpty
+        canRedo = true
+    }
+
+    func redo() {
+        guard let next = redoStack.popLast() else { return }
+        isRestoring = true
+        undoStack.append(beats)
+        beats = next
+        commit(beats)
+        isRestoring = false
+        canUndo = true
+        canRedo = !redoStack.isEmpty
     }
 
     func addBeat() {
+        pushUndoPoint()
         let idx = beats.count + 1
         beats.append(ScriptBeat(
             index: idx, title: "New Beat", description: "",
             searchQueries: [], targetDuration: nil, mood: nil,
             clips: []
         ))
+        commit(beats)
     }
 
     func removeBeat(at offsets: IndexSet) {
+        guard !offsets.isEmpty else { return }
+        pushUndoPoint()
         beats.remove(atOffsets: offsets)
         for i in beats.indices { beats[i].index = i + 1 }
+        commit(beats)
     }
 
     func moveBeat(from source: IndexSet, to destination: Int) {
+        guard !source.isEmpty else { return }
+        pushUndoPoint()
         beats.move(fromOffsets: source, toOffset: destination)
         for i in beats.indices { beats[i].index = i + 1 }
+        commit(beats)
+    }
+
+    func removeAllBeats() {
+        guard !beats.isEmpty else { return }
+        pushUndoPoint()
+        beats.removeAll()
+        commit(beats)
+    }
+
+    /// Drag-and-drop reorder by identity (source inserted at target's position).
+    func reorderBeat(fromId sourceId: UUID, toId targetId: UUID) {
+        guard let from = beats.firstIndex(where: { $0.id == sourceId }),
+              let to = beats.firstIndex(where: { $0.id == targetId }),
+              from != to else { return }
+        let beat = beats.remove(at: from)
+        beats.insert(beat, at: to)
+        for i in beats.indices { beats[i].index = i + 1 }
+        commit(beats)
+    }
+
+    /// Wholesale replacement from Parse Script / Auto-fill — one undo point per parse.
+    func applyParsedBeats(_ newBeats: [ScriptBeat], title: String?, duration: Double?) {
+        pushUndoPoint()
+        beats = newBeats
+        for i in beats.indices { beats[i].index = i + 1 }
+        commit(beats)
+        if let title { parsedTitle = title }
+        if let duration { estimatedDuration = duration }
     }
 
     func clipsToMarkers() -> [SummaryMarker] {
@@ -301,6 +426,7 @@ class AIEditStore: ObservableObject {
                     DispatchQueue.main.async {
                         if self.beats.indices.contains(beatIndex) {
                             self.beats[beatIndex].clips = result.clips
+                            self.commit(self.beats)
                         }
                         self.isAssembling = false
                         let included = result.clips.filter(\.included).count
@@ -351,7 +477,10 @@ class AIEditStore: ObservableObject {
                 sema.wait()
                 let cancelled = self.generationID != gen
                 DispatchQueue.main.async {
-                    if !cancelled { self.beats[i].clips = finishedClips }
+                    if !cancelled {
+                        self.beats[i].clips = finishedClips
+                        self.commit(self.beats)
+                    }
                 }
                 if cancelled { return }
             }

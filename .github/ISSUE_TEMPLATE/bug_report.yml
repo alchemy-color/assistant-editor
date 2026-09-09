@@ -1,0 +1,64 @@
+name: Bug report
+description: Report a crash, incorrect behavior, or build failure
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for taking the time to report a bug. Fill in as much as you can; the maintainers will reproduce from here."
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Where did you see the problem?
+      options:
+        - macOS (reference app)
+        - Linux (port in progress)
+        - Windows (port in progress)
+        - Python pipeline only (headless)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: macOS app version (e.g. v1.23) or the git commit SHA you built
+      placeholder: v1.23
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps, plus the exact folder/file contents that trigger it (redact anything sensitive).
+      placeholder: |
+        1. Open the AI Edit tab
+        2. Delete the second beat
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack trace
+      description: Paste the crash report, console output, or `/tmp/assistanteditor_timeline_log.json` (if relevant).
+      render: shell
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      description: Keeping issues actionable
+      options:
+        - label: I confirm the LLM runs locally (oMLX/Ollama) and the issue is not a cloud/model-network problem
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Environment details that might matter (macOS version, Resolve version, ffmpeg install, model in use).

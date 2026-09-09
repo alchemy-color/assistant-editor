@@ -1,0 +1,36 @@
+# Build artifacts
+build/
+dist/
+*.xcodeproj/
+!project.yml
+
+# macOS
+.DS_Store
+*.app
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# SQLite / caches
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Transient scratch (never commit real transcripts/footage)
+Transcripts/
+*.srtx
+*.srt
+*.txt.meta
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+
+# Local config
+.env
+secrets.*
