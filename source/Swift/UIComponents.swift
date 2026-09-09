@@ -68,25 +68,37 @@ struct LoadingPage: View {
 
 struct FolderChip: View {
     let text: String
+    var healthy: Bool? = nil   // green dot when the folder carries a project file, red when not
     let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 5) {
+            if let healthy {
+                Circle()
+                    .fill(healthy ? Color.green : Color.red)
+                    .frame(width: 6, height: 6)
+                    .help(healthy
+                        ? "Project file detected in \(text)"
+                        : "No project file detected in \(text)")
+            }
             Image(systemName: "folder")
-                .font(.subheadline)
+                .scaledFont(.caption)
                 .foregroundColor(.secondary)
             Text(text)
-                .scaledFont(.subheadline)
+                .scaledFont(.caption)
                 .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 200, alignment: .leading)
             Button(action: onDelete) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.subheadline)
+                    .scaledFont(.caption)
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+            .help("Remove folder")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: UIDesign.cornerChip).fill(Color(nsColor: .controlBackgroundColor)))
     }
 }
@@ -411,67 +423,143 @@ extension View {
 }
 
 
-// MARK: - Unified work-folder loader row
+// MARK: - Unified project bar (two columns: source folders left, materials right)
 
-/// One folder-loading row used at the top of every tab:
-/// chips · [＋ add] [↻ re-read] [🗑 clear] · trailing status slot.
-/// Each tab supplies its own storage + reload path (v1.12 isolation preserved).
-struct WorkFolderBar<Status: View>: View {
+/// One header used at the top of every tab. Two side-by-side columns, each with
+/// its content vertically centered and spreading across its own width:
+/// **Source Folder(s)** — ＋ ↻ 🗑 actions + folder chips (green/red project-file
+/// health dot on each chip) + trailing status caption; **Materials** — compact
+/// total counts with a subfolder expander that grows the column into the
+/// material tree. Each tab supplies its own storage + reload path.
+struct ProjectBar<Status: View>: View {
     let folders: [String]
     var emptyPrompt: String = "Choose work folder…"
     let onAdd: () -> Void
     let onRemove: (String) -> Void
     var onRescan: (() -> Void)? = nil
     let onClear: () -> Void
+    let trees: [MaterialNode]
+    @Binding var materialsExpanded: Bool
     @ViewBuilder var status: () -> Status
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Action icons lead the row — no text button
-            HStack(spacing: 14) {
-                Button(action: onAdd) {
-                    Image(systemName: "folder.badge.plus")
-                        .scaledFont(.title3)
-                        .foregroundColor(.accentColor)
-                }
-                .buttonStyle(.plain)
-                .help(folders.isEmpty ? emptyPrompt : "Add folder")
+        HStack(alignment: .top, spacing: 14) {
+            // Left section — source folders (labels / actions+status / folder list)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Source Folder(s)")
+                    .scaledFont(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .opacity(folders.isEmpty ? 0.5 : 1)
 
-                if let onRescan {
-                    Button(action: onRescan) {
-                        Image(systemName: "arrow.clockwise")
-                            .scaledFont(.title3)
-                            .foregroundColor(.secondary)
+                HStack(spacing: 10) {
+                    HStack(spacing: 9) {
+                        Button(action: onAdd) {
+                            Image(systemName: "folder.badge.plus")
+                                .scaledFont(.title3)
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help(folders.isEmpty ? emptyPrompt : "Add folder")
+
+                        if let onRescan {
+                            Button(action: onRescan) {
+                                Image(systemName: "arrow.clockwise")
+                                    .scaledFont(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Re-read work folders from disk")
+                        }
+
+                        Button(action: onClear) {
+                            Image(systemName: "trash")
+                                .scaledFont(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clear all folders")
                     }
-                    .buttonStyle(.plain)
-                    .help("Re-read work folders from disk")
+
+                    Spacer(minLength: 8)
+
+                    status()
                 }
 
-                Button(action: onClear) {
-                    Image(systemName: "trash")
-                        .scaledFont(.title3)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Clear all folders")
-            }
-
-            Spacer(minLength: 8)
-
-            if !folders.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(folders, id: \.self) { f in
-                            FolderChip(text: (f as NSString).lastPathComponent,
-                                       onDelete: { onRemove(f) })
+                if folders.isEmpty {
+                    Text(emptyPrompt)
+                        .scaledFont(.subheadline)
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .lineLimit(1)
+                        .frame(maxWidth: 460, alignment: .leading)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(folders, id: \.self) { f in
+                                FolderChip(text: (f as NSString).lastPathComponent,
+                                           healthy: healthByPath[f],
+                                           onDelete: { onRemove(f) })
+                            }
                         }
                     }
+                    .frame(height: 22)
+                    .frame(maxWidth: 460, alignment: .leading)
                 }
             }
+            .frame(minWidth: 240, maxWidth: 520, alignment: .topLeading)
 
-            status()
+            // Vertical divider between the two sections
+            Divider()
+
+            // Right section — materials (labels / summary+expander / toggleable tree)
+            if !folders.isEmpty && !trees.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Materials")
+                        .scaledFont(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .opacity(folders.isEmpty ? 0.5 : 1)
+
+                    HStack(spacing: 6) {
+                        Text(MaterialTree.summary(trees))
+                            .scaledFont(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .help(MaterialTree.summary(trees))
+                        Spacer(minLength: 4)
+                        if MaterialTree.subfolderCount(trees) > 0 {
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.15)) { materialsExpanded.toggle() }
+                            }) {
+                                HStack(spacing: 3) {
+                                    Text(materialsExpanded ? "hide" : "subfolders")
+                                        .scaledFont(.caption2)
+                                    Image(systemName: materialsExpanded ? "chevron.up" : "chevron.down")
+                                        .scaledFont(.caption2)
+                                }
+                                .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help(materialsExpanded ? "Collapse subfolder tree" : "Show subfolder tree")
+                        }
+                    }
+
+                    if materialsExpanded {
+                        ProjectBarMaterials(trees: trees)
+                            .frame(maxHeight: 150, alignment: .top)
+                    }
+                }
+                .frame(minWidth: 260, maxWidth: 430, alignment: .topLeading)
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, UIDesign.padH)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// path → hasProjectFile, for the health dots drawn on folder chips.
+    private var healthByPath: [String: Bool] {
+        Dictionary(uniqueKeysWithValues: trees.map { ($0.path, $0.hasProjectFile) })
     }
 }

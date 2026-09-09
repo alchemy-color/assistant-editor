@@ -34,30 +34,27 @@ struct AIEditTab: View {
     @State private var restoredFolders = false
     @State private var showClearAlert = false
     @State private var materialTrees: [MaterialNode] = []
-    @State private var materialsExpanded = true
+    @State private var materialsExpanded = false
     @State private var draggedBeatID: UUID?
     @State private var dropTargets: [UUID: Bool] = [:]
+    @State private var pendingLoad = ""
+    @State private var showLoadAlert = false
+    @State private var savedPath = ""
+    @State private var showSavedAlert = false
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("AI Edit")
-                    .scaledFont(.title2)
-                Spacer()
-            }
-            .padding(.horizontal, UIDesign.padH)
-            .padding(.top, UIDesign.padHeaderTop)
-            .padding(.bottom, 4)
-
             Divider()
 
-            WorkFolderBar(
+            ProjectBar(
                 folders: aiStore.folders,
                 emptyPrompt: "Select source folder…",
                 onAdd: { pickFolder() },
                 onRemove: { removeFolder($0) },
                 onRescan: { applyFolders(aiStore.folders, force: true) },
-                onClear: { showClearAlert = true }
+                onClear: { showClearAlert = true },
+                trees: materialTrees,
+                materialsExpanded: $materialsExpanded
             ) {
                 if subStore.isLoading || subStore.isTranscriptsLoading {
                     ProgressView().scaleEffect(0.7)
@@ -70,15 +67,14 @@ struct AIEditTab: View {
                         .foregroundColor(.green)
                         .help("Cues+paragraphs loaded")
                 } else if !subStore.statusMessage.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
                         Text(subStore.statusMessage)
                             .scaledFont(.caption2)
                             .foregroundColor(.orange)
-                            .padding(.horizontal, 4)
+                            .lineLimit(1)
                         Button("Force Rebuild") { applyFolders(aiStore.folders, force: true) }
                             .scaledFont(.caption2)
                             .foregroundColor(.orange)
-                            .padding(.horizontal, 4)
                     }
                 } else {
                     Label("not loaded", systemImage: "exclamationmark.circle")
@@ -96,12 +92,6 @@ struct AIEditTab: View {
                     subStore.clearAll()
                 }
                 Button("Cancel", role: .cancel) {}
-            }
-
-            Divider()
-
-            if !aiStore.folders.isEmpty {
-                MaterialTreeView(trees: materialTrees, expanded: $materialsExpanded)
             }
 
             Divider()
@@ -132,14 +122,42 @@ struct AIEditTab: View {
 
     var leftPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionTitle("Edit") {
+            SectionTitle("Script Beats") {
                 Group {
                     if !aiStore.folders.isEmpty {
                         HStack(spacing: 6) {
-                            StatusChip(label: "Synopsis", count: aiStore.materials.synopsisCount, icon: "doc.text")
-                            StatusChip(label: "Chapters", count: aiStore.materials.chaptersCount, icon: "flag")
-                            StatusChip(label: "Transcripts", count: aiStore.materials.transcriptCount, icon: "doc.plaintext")
-                            StatusChip(label: "Subtitles", count: aiStore.materials.subtitleCount, icon: "captions.bubble")
+                            Button(action: saveTimelineAction) {
+                                Image(systemName: "square.and.arrow.down")
+                                    .scaledFont(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Save edit to <timeline name>_timeline.yaml in the work folder")
+                            .disabled(aiStore.isParsing || aiStore.isAssembling)
+
+                            Menu {
+                                let files = AIEditStore.detectTimelines(in: aiStore.folders)
+                                if files.isEmpty {
+                                    Text("No saved edits in work folders")
+                                }
+                                ForEach(Array(files.enumerated()), id: \.element) { _, path in
+                                    Button("\(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)") {
+                                        pendingLoad = path
+                                        showLoadAlert = true
+                                    }
+                                }
+                                Divider()
+                                Button("Open…") { openTimelinePanel() }
+                            } label: {
+                                Image(systemName: "square.and.arrow.up")
+                                    .scaledFont(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .menuStyle(.borderlessButton)
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .help("Load a saved edit (_timeline.yaml)")
+                            .disabled(aiStore.isParsing || aiStore.isAssembling)
 
                             Button(action: { aiStore.rescanMaterials() }) {
                                 Image(systemName: "arrow.clockwise")
@@ -332,11 +350,50 @@ struct AIEditTab: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if aiStore.beats.isEmpty {
-                EmptyStateView(
-                    icon: "film.stack",
-                    title: "No beats yet",
-                    message: "Add beats manually with the + button below, or expand the Treatment drawer and click **Auto-fill from text** to have the AI break your treatment into beats."
-                )
+                VStack(spacing: 12) {
+                    Spacer()
+                    Image(systemName: "film.stack")
+                        .scaledFontSize(34)
+                        .foregroundColor(.secondary.opacity(0.4))
+                    Text("No beats yet")
+                        .scaledFont(.title3)
+                        .foregroundColor(.secondary)
+                    Text("Start your edit here. Author beats by hand, or paste a treatment in the drawer above and let the AI break it into beats. Each beat becomes a cell in the Timeline Beats panel.")
+                        .scaledFont(.caption)
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 380)
+                    HStack(spacing: 12) {
+                        Button(action: { aiStore.addBeat() }) {
+                            HStack(spacing: 7) {
+                                Image(systemName: "plus")
+                                    .scaledFont(.headline)
+                                Text("Add Beat")
+                                    .scaledFont(.headline)
+                            }
+                            .frame(maxWidth: 210)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(aiStore.isParsing || aiStore.isAssembling)
+                        .help("Start a new beat — title it and describe what should happen")
+
+                        Button(action: { autoFillFromText() }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "wand.and.stars")
+                                    .scaledFont(.subheadline)
+                                Text("Auto-fill from Text")
+                                    .scaledFont(.subheadline)
+                            }
+                        }
+                        .controlSize(.regular)
+                        .disabled(aiStore.scriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                  || aiStore.isParsing || aiStore.isAssembling)
+                        .help("Parse the treatment into structured beats")
+                    }
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView(.vertical, showsIndicators: true) {
                     LazyVStack(spacing: 6) {
@@ -369,51 +426,38 @@ struct AIEditTab: View {
                     }
                     .padding(.horizontal, UIDesign.padH)
                 }
+            }
 
-                HStack {
+            if !aiStore.beats.isEmpty {
+                HStack(spacing: 10) {
                     Button(action: { aiStore.addBeat() }) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 5) {
                             Image(systemName: "plus")
-                                .scaledFont(.caption)
-                            Text("Add beat")
-                                .scaledFont(.caption)
+                                .scaledFont(.subheadline)
+                            Text("Add Beat")
+                                .scaledFont(.subheadline)
                         }
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .disabled(aiStore.isParsing || aiStore.isAssembling)
+                    .help("Add a new beat")
 
-                    Button(action: { aiStore.undo() }) {
-                        Image(systemName: "arrow.uturn.backward")
-                            .scaledFont(.caption2)
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(!aiStore.canUndo || aiStore.isParsing || aiStore.isAssembling)
-                    .help("Undo last beat change (add, delete, reorder, or edit)")
+                    Spacer()
 
-                    Button(action: { aiStore.redo() }) {
-                        Image(systemName: "arrow.uturn.forward")
-                            .scaledFont(.caption2)
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(!aiStore.canRedo || aiStore.isParsing || aiStore.isAssembling)
-                    .help("Redo last undone beat change")
-
-                    if !aiStore.beats.isEmpty {
-                        Spacer()
-                        Button(action: { aiStore.removeAllBeats() }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "trash")
-                                    .scaledFont(.caption2)
-                                Text("Remove all")
-                                    .scaledFont(.caption2)
-                            }
+                    Button(action: { aiStore.removeAllBeats() }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "trash")
+                                .scaledFont(.subheadline)
+                            Text("Remove all")
+                                .scaledFont(.subheadline)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .foregroundColor(.secondary)
-                        .disabled(aiStore.isParsing || aiStore.isAssembling)
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .foregroundColor(.secondary)
+                    .disabled(aiStore.isParsing || aiStore.isAssembling)
+                    .help("Remove all beats")
                 }
                 .padding(.horizontal, UIDesign.padH)
                 .padding(.vertical, 6)
@@ -447,13 +491,49 @@ struct AIEditTab: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
+        .alert("Load saved edit?", isPresented: $showLoadAlert) {
+            Button("Load") {
+                if aiStore.loadTimelineFile(at: pendingLoad) {
+                    materialTrees = MaterialTree.scan(aiStore.folders)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This replaces the current beats and clips with \u{201C}\(URL(fileURLWithPath: pendingLoad).deletingPathExtension().lastPathComponent)\u{201D}.")
+        }
+        .alert("Edit saved", isPresented: $showSavedAlert) {
+            Button("OK") {}
+        } message: {
+            Text(savedPath)
+        }
+    }
+
+    // MARK: - Timeline archive helpers
+
+    private func saveTimelineAction() {
+        if let path = aiStore.saveTimelineFile() {
+            savedPath = path
+            showSavedAlert = true
+            materialTrees = MaterialTree.scan(aiStore.folders)
+        }
+    }
+
+    private func openTimelinePanel() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.yaml]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK, let url = panel.url {
+            pendingLoad = url.path
+            showLoadAlert = true
+        }
     }
 
     // MARK: - Right Panel (Beats)
 
     var rightPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionTitle("Beats") {
+            SectionTitle("Timeline Beats") {
                 if !aiStore.beats.isEmpty {
                     Text("\(aiStore.beats.count) beat\(aiStore.beats.count == 1 ? "" : "s")  \u{00B7}  \(aiStore.totalIncludedClips) clip\(aiStore.totalIncludedClips == 1 ? "" : "s")")
                         .scaledFont(.caption)
@@ -705,11 +785,22 @@ struct AIEditTab: View {
     // MARK: - Empty State
 
     var emptyState: some View {
-        EmptyStateView(
-            icon: "doc.text",
-            title: "No clips yet",
-            message: "Use the left panel to author beats, then click **Create Edit** to find matching clips from your material."
-        )
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "timeline.selection")
+                .scaledFontSize(34)
+                .foregroundColor(.secondary.opacity(0.4))
+            Text("Timeline Beats")
+                .scaledFont(.title3)
+                .foregroundColor(.secondary)
+            Text("Each beat you author in the Script Beats panel appears here as a timeline cell. When a beat has clips, this is where you review and include them in the cut.")
+                .scaledFont(.caption)
+                .foregroundColor(.secondary.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Beats List

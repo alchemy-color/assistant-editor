@@ -235,6 +235,207 @@ class AIEditStore: ObservableObject {
         return report
     }
 
+    // MARK: - Timeline file archive (`<name>_timeline.yaml` in work folders)
+
+    /// Recursively finds every `<name>_timeline.yaml` under the given folders (sorted).
+    static func detectTimelines(in folders: [String]) -> [String] {
+        var found: [String] = []
+        for folder in folders {
+            guard let enumerator = FileManager.default.enumerator(
+                at: URL(fileURLWithPath: folder),
+                includingPropertiesForKeys: nil
+            ) else { continue }
+            for case let url as URL in enumerator
+            where url.lastPathComponent.hasSuffix("_timeline.yaml") {
+                found.append(url.path)
+            }
+        }
+        return found.sorted()
+    }
+
+    /// File-system-safe base name from a timeline title (drops `/\:?%*|"<>`).
+    static func sanitizedTimelineName(_ title: String?) -> String {
+        let raw = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return "untitled" }
+        let invalid = CharacterSet(charactersIn: "/\\:?%*|\"<>")
+        return raw.unicodeScalars
+            .map { invalid.contains($0) ? "_" : String($0) }
+            .joined()
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Canonical save location: `<first work folder>/<sanitized title>_timeline.yaml`.
+    func defaultTimelinePath(in folders: [String]) -> String {
+        let name = Self.sanitizedTimelineName(parsedTitle)
+        let dir = folders.first ?? FileManager.default.temporaryDirectory.path
+        return (dir as NSString).appendingPathComponent("\(name)_timeline.yaml")
+    }
+
+    private func timelineYAML(_ session: AIEditSession) -> String {
+        func esc(_ s: String) -> String { ProjectAnalysis.yamlEscaped(s) }
+        var y = "version: 1\n"
+        y += "name: \"\(esc(session.parsedTitle ?? ""))\"\n"
+        y += "include_timestamp: \(includeNameTimestamp)\n"
+        if let d = session.estimatedDuration { y += "estimated_seconds: \(d)\n" }
+        y += "intent: \"\(esc(session.intent ?? ""))\"\n"
+        y += "script: \"\(esc(session.script))\"\n"
+        y += "saved_at: \"\(esc(Self.dateStamp()))\"\n"
+        y += "beats:\n"
+        for b in session.beats {
+            y += "  - title: \"\(esc(b.title))\"\n"
+            y += "    description: \"\(esc(b.description))\"\n"
+            if let m = b.mood, !m.isEmpty { y += "    mood: \"\(esc(m))\"\n" }
+            if let t = b.targetDuration { y += "    target_seconds: \(t)\n" }
+            if !b.searchQueries.isEmpty {
+                y += "    queries:\n"
+                for q in b.searchQueries { y += "      - \"\(esc(q))\"\n" }
+            }
+            if !b.clips.isEmpty {
+                y += "    clips:\n"
+                for c in b.clips {
+                    y += "      - included: \(c.included)\n"
+                    y += "        is_context: \(c.isContext)\n"
+                    y += "        speaker: \"\(esc(c.speaker))\"\n"
+                    y += "        interview: \"\(esc(c.interview))\"\n"
+                    y += "        start_s: \(c.start_s)\n"
+                    y += "        end_s: \(c.end_s)\n"
+                    y += "        score: \(c.matchScore)\n"
+                    y += "        reason: \"\(esc(c.matchReason))\"\n"
+                    y += "        id: \"\(esc(c.id))\"\n"
+                    y += "        source: \"\(esc(c.sourceFile))\"\n"
+                    if let root = c.sourceRoot, !root.isEmpty { y += "        root: \"\(esc(root))\"\n" }
+                    y += "        text: \"\(esc(c.text))\"\n"
+                }
+            }
+        }
+        if !session.flowNotes.isEmpty {
+            y += "flow_notes:\n"
+            for n in session.flowNotes {
+                if let bi = n.beatIndex { y += "  - beat_index: \(bi)\n" } else { y += "  - beat_index: null\n" }
+                y += "    severity: \"\(esc(n.severity))\"\n"
+                y += "    message: \"\(esc(n.message))\"\n"
+            }
+        }
+        return y
+    }
+
+    private static func dateStamp() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return f.string(from: Date())
+    }
+
+    /// Saves the current edit as `<sanitized timeline name>_timeline.yaml` in the first work folder.
+    @discardableResult
+    func saveTimelineFile() -> String? {
+        guard !folders.isEmpty else { return nil }
+        let path = defaultTimelinePath(in: folders)
+        let session = AIEditSession(
+            script: scriptText,
+            parsedTitle: parsedTitle,
+            estimatedDuration: estimatedDuration,
+            intent: intent.isEmpty ? nil : intent,
+            beats: beats,
+            flowNotes: flowNotes
+        )
+        do {
+            try timelineYAML(session).write(toFile: path, atomically: true, encoding: .utf8)
+            return path
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Loads a `<name>_timeline.yaml` into the session, replacing current beats/clips.
+    @discardableResult
+    func loadTimelineFile(at path: String) -> Bool {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8),
+              let map = Yaml.parse(text) else {
+            lastError = "Could not read timeline archive at \(path)"
+            return false
+        }
+
+        func str(_ m: [String: Any], _ k: String) -> String {
+            (m[k] as? String) ?? ""
+        }
+        func dbl(_ m: [String: Any], _ k: String) -> Double? {
+            (m[k] as? NSNumber)?.doubleValue
+        }
+        func boolVal(_ m: [String: Any], _ k: String) -> Bool {
+            (m[k] as? Bool) ?? (((m[k] as? Int) ?? 0) != 0)
+        }
+
+        var newBeats: [ScriptBeat] = []
+        if let beatsArr = map["beats"] as? [[String: Any]] {
+            for (i, b) in beatsArr.enumerated() {
+                var clips: [BeatClip] = []
+                if let clipArr = b["clips"] as? [[String: Any]] {
+                    for c in clipArr {
+                        let sf = str(c, "source")
+                        let cid = str(c, "id")
+                        let root = str(c, "root")
+                        clips.append(BeatClip(
+                            id: cid.isEmpty ? "\(sf)|\(Int((dbl(c, "start_s") ?? 0) * 1000))" : cid,
+                            sourceFile: sf,
+                            sourceRoot: root.isEmpty ? nil : root,
+                            interview: str(c, "interview"),
+                            speaker: str(c, "speaker"),
+                            start_s: dbl(c, "start_s") ?? 0,
+                            end_s: dbl(c, "end_s") ?? 0,
+                            text: str(c, "text"),
+                            matchScore: dbl(c, "score") ?? 0,
+                            matchReason: str(c, "reason"),
+                            included: boolVal(c, "included"),
+                            isContext: boolVal(c, "is_context")
+                        ))
+                    }
+                }
+                var queries: [String] = []
+                if let qArr = b["queries"] as? [[String: Any]] {
+                    queries = qArr.map { str($0, "__value") }.filter { !$0.isEmpty }
+                } else if let inline = b["queries"] as? [Any] {
+                    queries = inline.map { "\($0)" }
+                }
+                let mood = str(b, "mood")
+                newBeats.append(ScriptBeat(
+                    id: UUID(),
+                    index: i,
+                    title: str(b, "title"),
+                    description: str(b, "description"),
+                    searchQueries: queries,
+                    targetDuration: dbl(b, "target_seconds"),
+                    mood: mood.isEmpty ? nil : mood,
+                    clips: clips
+                ))
+            }
+        }
+
+        var notes: [FlowNote] = []
+        if let notesArr = map["flow_notes"] as? [[String: Any]] {
+            for n in notesArr {
+                let bi = (n["beat_index"] as? Int) ?? ((n["beat_index"] as? NSNumber)?.intValue)
+                let severity = str(n, "severity")
+                notes.append(FlowNote(
+                    beatIndex: bi,
+                    severity: severity.isEmpty ? "info" : severity,
+                    message: str(n, "message")
+                ))
+            }
+        }
+
+        parsedTitle = str(map, "name").isEmpty ? nil : str(map, "name")
+        estimatedDuration = dbl(map, "estimated_seconds")
+        intent = str(map, "intent")
+        scriptText = str(map, "script")
+        savedScript = scriptText
+        beats = newBeats
+        flowNotes = notes
+        commit(newBeats)
+        saveSession()
+        return true
+    }
+
     var totalIncludedClips: Int {
         beats.reduce(0) { $0 + $1.clips.filter(\.included).count }
     }

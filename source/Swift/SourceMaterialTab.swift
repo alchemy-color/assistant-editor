@@ -27,22 +27,13 @@ struct SourceMaterialTab: View {
     @State private var dragOriginValue: Double?
     @State private var showClearAlert = false
     @State private var materialTrees: [MaterialNode] = []
-    @State private var materialsExpanded = true
+    @State private var materialsExpanded = false
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Project Setup")
-                    .scaledFont(.title2)
-                Spacer()
-            }
-            .padding(.horizontal, UIDesign.padH)
-            .padding(.top, UIDesign.padHeaderTop)
-            .padding(.bottom, 4)
-
             Divider()
 
-            WorkFolderBar(
+            ProjectBar(
                 folders: folders,
                 emptyPrompt: "Choose interview folder…",
                 onAdd: { addFolder() },
@@ -53,7 +44,9 @@ struct SourceMaterialTab: View {
                     originalWeights = [:]
                     loadAnalysis()
                 },
-                onClear: { showClearAlert = true }
+                onClear: { showClearAlert = true },
+                trees: materialTrees,
+                materialsExpanded: $materialsExpanded
             ) {
                 if !analysis.themes.isEmpty {
                     Text("\(analysis.themes.count) themes")
@@ -71,46 +64,24 @@ struct SourceMaterialTab: View {
             }
             .disabled(isAnalyzing)
 
-            Divider()
-
-            if !folders.isEmpty {
-                materialsSection
-            }
-
-            Divider()
-
-            // Analyze button — always visible when folders exist
-            if !folders.isEmpty {
-                VStack(spacing: 8) {
-                    if isAnalyzing {
-                        ProgressView(value: analysisProgress)
-                            .scaleEffect(x: 1, y: 0.5, anchor: .center)
-                        Text(analysisMessage)
-                            .scaledFont(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(2)
-                    } else {
+            if analysis.themes.isEmpty && !isAnalyzing {
+                VStack(spacing: 6) {
+                    EmptyStateView(
+                        icon: "doc.text.magnifyingglass",
+                        title: "No project analysis yet",
+                        message: "Add folders and click **Analyze** to extract themes and keywords from your interviews."
+                    )
+                    if !folders.isEmpty {
                         Button(action: analyze) {
-                            HStack {
+                            HStack(spacing: 6) {
                                 Image(systemName: "sparkle")
-                                Text(analysis.themes.isEmpty ? "Analyze" : "Regenerate Themes")
+                                Text("Analyze")
                             }
-                            .frame(maxWidth: .infinity)
                         }
-                        .primaryActionBar()
-                        .frame(maxWidth: .infinity)
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
-
-            if analysis.themes.isEmpty && !isAnalyzing {
-                EmptyStateView(
-                    icon: "doc.text.magnifyingglass",
-                    title: "No project analysis yet",
-                    message: "Add folders and click **Analyze** to extract themes and keywords from your interviews."
-                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 themesWeighingSection
@@ -139,6 +110,19 @@ struct SourceMaterialTab: View {
                         .layoutPriority(1)
                 }
                 Spacer()
+                if isAnalyzing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .help(analysisMessage)
+                } else if !folders.isEmpty {
+                    Button(action: analyze) {
+                        Label(analysis.themes.isEmpty ? "Analyze" : "Regenerate Themes",
+                              systemImage: "sparkle")
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .help("Analyze interview folders with the LLM to extract themes and weights")
+                }
                 Button("Reset Weighing") { resetWeights() }
                     .controlSize(.small)
                     .buttonStyle(.bordered)
@@ -151,6 +135,19 @@ struct SourceMaterialTab: View {
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 8)
+
+            if isAnalyzing {
+                HStack(spacing: 8) {
+                    ProgressView(value: analysisProgress)
+                        .scaleEffect(x: 1, y: 0.5, anchor: .center)
+                    Text(analysisMessage)
+                        .scaledFont(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 6)
+            }
 
             // Inline speaker line — one scrollable row of mini bars
             if analysis.stats.totalInterviews > 0 && !analysis.stats.speakers.isEmpty {
@@ -170,11 +167,6 @@ struct SourceMaterialTab: View {
                 }
             }
         }
-    }
-
-    /// Compact theme entry with percentage and a proportional bar.
-    var materialsSection: some View {
-        MaterialTreeView(trees: materialTrees, expanded: $materialsExpanded)
     }
 
     /// Compact theme entry with percentage and a proportional bar.

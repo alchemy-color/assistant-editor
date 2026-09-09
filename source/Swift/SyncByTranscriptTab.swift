@@ -46,15 +46,6 @@ struct SyncByTranscriptTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Sync by Transcript")
-                    .scaledFont(.title2)
-                Spacer()
-            }
-            .padding(.horizontal, UIDesign.padH)
-            .padding(.top, UIDesign.padHeaderTop)
-            .padding(.bottom, 4)
-
             Divider()
 
             workFolderBar
@@ -87,7 +78,7 @@ struct SyncByTranscriptTab: View {
     }
 
     private var workFolderBar: some View {
-        WorkFolderBar(
+        ProjectBar(
             folders: (syncFolder?.isEmpty ?? true) ? [] : [syncFolder!],
             emptyPrompt: "Choose sync folder…",
             onAdd: { chooseFolder() },
@@ -99,7 +90,9 @@ struct SyncByTranscriptTab: View {
             onClear: {
                 syncFolder = ""
                 lastSyncFolder = ""
-            }
+            },
+            trees: [],
+            materialsExpanded: .constant(false)
         ) {
             EmptyView()
         }

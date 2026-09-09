@@ -56,7 +56,7 @@ struct ProcessTimelineTab: View {
     @State private var processingProgressMessage = ""
     @State private var processStatus = ""
     @State private var materialTrees: [MaterialNode] = []
-    @State private var materialsExpanded = true
+    @State private var materialsExpanded = false
     @State private var chaptersVerbosity: Double = 0.5
     @State private var synopsisVerbosity: Double = 0.5
     @State private var showOverwriteAlert = false
@@ -213,24 +213,9 @@ struct ProcessTimelineTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Timeline Assist")
-                    .scaledFont(.title2)
-                Spacer()
-            }
-            .padding(.horizontal, UIDesign.padH)
-            .padding(.top, UIDesign.padHeaderTop)
-            .padding(.bottom, 4)
-
             Divider()
 
             folderBar
-
-            Divider()
-
-            if !ownFolders.isEmpty {
-                MaterialTreeView(trees: materialTrees, expanded: $materialsExpanded)
-            }
 
             Divider()
 
@@ -401,7 +386,7 @@ struct ProcessTimelineTab: View {
     }
 
     var folderBar: some View {
-        WorkFolderBar(
+        ProjectBar(
             folders: ownFolders,
             emptyPrompt: "Load work folder…",
             onAdd: { addFolder() },
@@ -409,14 +394,15 @@ struct ProcessTimelineTab: View {
                 if let idx = ownFolders.firstIndex(of: p) { removeFolder(at: idx) }
             },
             onRescan: { forceReloadOwnFolders() },
-            onClear: { showClearAlert = true }
+            onClear: { showClearAlert = true },
+            trees: materialTrees,
+            materialsExpanded: $materialsExpanded
         ) {
             if !processStatus.isEmpty {
                 Text(processStatus)
                     .scaledFont(.caption2)
                     .foregroundColor(processStatus.hasPrefix("Resolve error") ? .red : .secondary)
                     .lineLimit(3)
-                    .multilineTextAlignment(.trailing)
                     .textSelection(.enabled)
                     .help(processStatus)
             }
