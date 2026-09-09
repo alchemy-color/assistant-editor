@@ -1,0 +1,21 @@
+# License
+
+Copyright (c) 2026 Paulo Martins. All rights reserved.
+
+This repository contains the reference source code and documentation for
+**Assistant Editor**, a proprietary documentary post-production tool.
+
+This repository is shared for the benefit of explicitly authorized
+third-party developers tasked with porting the software to Linux and
+Windows. No permission is granted to:
+
+- redistribute this software or its derivatives as a standalone product,
+- use the Assistant Editor name or branding,
+- sell, sublicense, or commercially exploit this code outside the
+  scope of the authorization granted by the copyright holder.
+
+If you believe you should have a license to use this code for a specific
+purpose, contact the copyright holder.
+
+Deviation note: if an open-source license is intended, replace this file
+with the chosen license text and update the README badge accordingly.
