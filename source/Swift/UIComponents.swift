@@ -508,8 +508,11 @@ struct ProjectBar<Status: View>: View {
             }
             .frame(minWidth: 240, maxWidth: 520, alignment: .topLeading)
 
-            // Vertical divider between the two sections
-            Divider()
+            // Vertical divider between the two sections — FIXED height so it
+            // can never stretch the bar when the tab proposes ample space
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(width: 1, height: 40)
 
             // Right section — materials (labels / summary+expander / toggleable tree)
             if !folders.isEmpty && !trees.isEmpty {
