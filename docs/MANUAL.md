@@ -2,9 +2,9 @@
 
 ## Overview
 
-Assistant Editor is an assistant editor for documentary film post-production. It ingests interview transcripts and subtitles (SRT/SRTX/TXT), analyzes projects to extract themes and keywords, generates structured chapter markers and synopses via local LLM (Ollama), creates timelines in DaVinci Resolve from subtitle search results, and provides a transcript intelligence chat system grounded in your interview data.
+Assistant Editor is an assistant editor for documentary film post-production. It ingests interview transcripts and subtitles (SRT/SRTX/TXT), analyzes projects to extract themes and keywords, generates structured chapter markers and synopses via a local LLM (oMLX), creates timelines in DaVinci Resolve from subtitle search results, and provides a transcript intelligence chat system grounded in your interview data.
 
-All AI processing runs **entirely on your machine** via Ollama — nothing leaves your computer.
+All AI processing runs **entirely on your machine** via the local oMLX server — nothing leaves your computer.
 
 ---
 
@@ -24,7 +24,7 @@ Assistant Editor is a macOS SwiftUI app with four tabs: **Project Setup** (proje
 |-------|------|
 | `SubtitleStore` | Parses SRT/SRTX/TXT files, maintains file-backed SQLite+FTS5 databases for subtitle + transcript search, manages AI embeddings (`NLEmbedding`) for semantic search, handles speaker filtering and sort options |
 | `DocumentStore` | Scans filesystem via `PythonBridge.scanSummaries()` for `_chapters.yaml` files, loads them as `SummaryDocument` objects. No database used — pure filesystem reads |
-| `AssistantStore` | Manages chat messages for the Transcript Intelligence tab. Calls Ollama `localhost:11434/api/generate` with RAG context from `KnowledgeStore` |
+| `AssistantStore` | Manages chat messages for the Transcript Intelligence tab. Calls the local oMLX server (`OMLXClient`, OpenAI-compatible `http://localhost:8000`) with RAG context from `KnowledgeStore` |
 | `KnowledgeStore` | Pre-computed per-interview knowledge base: full synopsis text, topic breakdown (theme → markers), centroid-based key quotes from embeddings. File-backed JSON at `~/Library/Caches/assistanteditor_knowledge_{folderName}.json`. Built on demand when user picks a project folder. Uses dynamic themes from `@AppStorage("projectThemesJSON")` for topic color assignment |
 | `ProjectAnalysis` | Codable model for `_project.yaml` — project themes, keywords, weights, stats, interview metadata. Persisted per root folder, shared across tabs via `@AppStorage("projectThemesJSON")` |
 
@@ -50,13 +50,12 @@ Assistant Editor is a macOS SwiftUI app with four tabs: **Project Setup** (proje
 
 ## Getting Started
 
-1. **Install Ollama** from [ollama.com/download](https://ollama.com/download)
-2. **Pull a model**: `ollama pull sonct988/gemma4-26b-a4b-it-q4km-256k` (default) or any compatible model
-3. Launch Assistant Editor — Ollama does not need to be running; the app auto-starts the server via the CLI on launch
-4. The model dropdown in the bottom bar auto-detects installed models
-5. Click **Load Model** (red button) to load the model into GPU memory
-6. The **Project Setup** tab opens by default — add your interview root folder via the **＋** icon, then click **Analyze** in the Weighing header (or the empty state) to extract themes
-7. Switch to **Timeline Assist** and add work folders the same way
+1. **Install oMLX** from [github.com/jundot/omlx](https://github.com/jundot/omlx) (DMG from the releases page, or `brew tap jundot/omlx https://github.com/jundot/omlx && brew install jundot/omlx/omlx`) — a local LLM server exposing an OpenAI-compatible API on `localhost:8000` by default
+2. **Load a model** in oMLX (e.g. `Llama-3.1-8B-Instruct-4bit`, the app's default). Any instruct model works — the app reads the served model list and lets you pick
+3. Launch Assistant Editor; the app detects the oMLX server automatically (`/v1/models`). If it's not reachable, click **Server Setup…** in the bottom bar to set the server URL/API key
+4. The model dropdown in the bottom bar lists models served by oMLX
+5. The **Project Setup** tab opens by default — add your interview root folder via the **＋** icon, then click **Analyze** in the Weighing header (or the empty state) to extract themes
+6. Switch to **Timeline Assist** and add work folders the same way
 
 ### The Project Bar (every tab)
 
@@ -123,7 +122,7 @@ The project analysis and theme management tab. Opens by default on launch. **Sin
 
 1. `analyze_project.py` scans all subtitle/transcript files in the selected folders
 2. Merges cues, extracts speakers, counts duration and cues per interview
-3. If an Ollama model is loaded, sends interview samples to the LLM for 5–8 project-specific themes; otherwise falls back to keyword-frequency categories
+3. If the oMLX server has a model loaded, sends interview samples to the LLM for 5–8 project-specific themes; otherwise falls back to keyword-frequency categories
 4. Writes `_project.yaml`; themes are shared across all tabs via `projectThemesJSON`
 
 ### Instant Loading & Persistence
@@ -256,14 +255,14 @@ After processing, a **document picker** dropdown lets you switch between loaded 
 Two buttons generate deliverables for video descriptions:
 
 - **YouTube Markers** — opens a sheet with a timestamped chapter list (`m:ss` / `h:mm:ss` + chapter title), ready to paste into a YouTube description. **Copy** copies to the clipboard, **Save…** writes a `.txt` file. A **text size slider** (9–24 pt, monospaced) adjusts the sheet preview
-- **AI Summary** — opens a sheet (nothing generates yet). Pick a length — **Short** / **Medium** / **Long** — then press **Generate Summary** in the window. Ollama writes the summary from the selected document's transcript (falling back to subtitles, then chapter notes), with thinking disabled (`think: false`) and any leaked reasoning (complete or partial `<think>` blocks) stripped so only the clean summary is shown. Each length's result is cached and saved per document, so switching between Short/Medium/Long restores its previous summary without regenerating; cached summaries survive app restarts. A **generation time** (`mm:ss`) appears below the text. **Copy** keeps the window open and shows a brief "Copied ✓" confirmation; **Save As…** and **Regenerate** are also available while the sheet is open
+- **AI Summary** — opens a sheet (nothing generates yet). Pick a length — **Short** / **Medium** / **Long** — then press **Generate Summary** in the window. The local oMLX LLM writes the summary from the selected document's transcript (falling back to subtitles, then chapter notes) and any leaked reasoning (complete or partial `<think>` blocks) is stripped so only the clean summary is shown. Each length's result is cached and saved per document, so switching between Short/Medium/Long restores its previous summary without regenerating; cached summaries survive app restarts. A **generation time** (`mm:ss`) appears below the text. **Copy** keeps the window open and shows a brief "Copied ✓" confirmation; **Save As…** and **Regenerate** are also available while the sheet is open
 
 ### Right Panel: Subtitle Search & Timeline Creation
 
 #### Search Bar
 
 - Text field with paperplane **Send** button
-- Every query is interpreted through Ollama (`keep_alive: 0`):
+- Every query is interpreted through the local oMLX server:
   - Natural language: "Find all mentions of oak aging and fermentation temperature" → LLM extracts keywords and runs search
   - Keywords: "barrel aging bairrada" → LLM returns them as-is
 - **CLI reasoning window** above the prompt bar — dark background, monospaced, max 140pt height. Shows `>` query and LLM interpretation. Text is selectable via `.textSelection(.enabled)`
@@ -350,7 +349,7 @@ RAG chat interface grounded in your interview data.
 - User messages right-aligned (accent color background), assistant messages left-aligned
 - **Clear** button resets conversation and LLM reasoning state
 - Input field with **Send** button and spinning wheel during processing
-- Powered by the selected Ollama model
+- Powered by the selected oMLX model
 
 ### Knowledge Base & Search Context
 
@@ -373,50 +372,53 @@ When it returns, the workflow is: single work folder with auto-detected files (`
 
 ## Bottom Bar
 
-### Model Status & Controls
+### Server, Model & Status Controls
 
 | Element | Description |
 |---------|-------------|
-| **Status dot** | Green = model loaded and ready; Gray = model not loaded or Ollama unavailable |
-| **Model dropdown** | Picker of available models from `ollama list` (auto-detected on launch). Selection stored in `@AppStorage("selectedModel")` |
-| **Load / Unload** | Green bordered button (loaded) / Red bordered button (unloaded). Load sends warm-up API request with `keep_alive: -1` to keep model in GPU memory. Unload runs `ollama stop <model>` to free ~20GB of VRAM. On app termination, model is automatically unloaded via the selected model stored in UserDefaults |
-| **Model Manager…** | Opens the Model Manager popover — installed/available model lists with per-model hardware-fit badges, install/delete/update, Ollama update, and hardware summary |
-| **Preferences…** | Opens the Preferences window (⌘,) — priming prompts, presets, pipeline tuning |
+| **Server Status dot** | Green = oMLX server reachable with a model loaded; Red = server not reachable; Gray = not yet checked. Tooltip explains the state |
+| **Server Setup…** | Opens the **Server Setup sheet** — set the local oMLX server URL (default `http://localhost:8000`) and API key, **Test Connection**, and see detected models. Saves to UserDefaults (`omlxBaseURL`/`omlxAPIKey`) |
+| **oMLX** | Launches the oMLX app (falls back to `open -a oMLX`) |
+| **Refresh models** | Re-queries the server (`/v1/models`) to repopulate the model dropdown |
+| **Model dropdown** | Picker of models currently served by oMLX on the configured URL (auto-detected on launch and every 30 s). Selection stored in `@AppStorage("selectedModel")`, default `Llama-3.1-8B-Instruct-4bit` |
+| **Quality badge** | Curated tier/stars for the selected model (`ModelCatalog`) — e.g. Qwen3-30B-A3B is tier S, 5 stars; unknown models get a generic entry |
+| **info.circle** | Opens the **Model Detail popover** — curated model card (tier, virtues, context/RAM) plus a live Hugging Face page fetch for the model |
+| **tok/s meter** | "N tok/s" readout of the last Swift-side LLM call (completion tokens ÷ wall-clock time); "— tok/s" when idle |
+| **Resolve Status dot** | Green = connected, Orange = not connected, Gray = unknown |
+| **Resolve Setup** | Opens the Resolve setup sheet |
+| **Preferences…** | Opens the Priming window (⌘,) — priming prompts, presets, pipeline tuning |
 | **Methodology** | Button that re-opens the onboarding splash screen explaining the Resolve workflow |
-| **Setup…** | Appears when Ollama is unavailable. Opens the setup sheet with options to Install Ollama, Pull Model, or Use Keywords Instead |
 | **ProgressView** | Determinate progress bar with status caption text during processing |
 
-The bar is decluttered with dividers between logical groups (Model controls | Model Manager | Priming/Methodology).
+The bar is decluttered with dividers between logical groups (Server/Model controls | LLM meter | Resolve | buttons).
 
-### Model Manager
+### Server Setup Sheet
 
-Opened via the **Model Manager…** button in the bottom bar. A popover with:
+Opened via **Server Setup…** in the bottom bar.
 
-- **Hardware header** — detected chip (e.g. "Apple M2 Max"), core count, unified memory, Ollama version, and install method (Homebrew / Ollama.app)
-- **Installed Models** — list of locally pulled models with parameter size, quantization, file size, and a hardware-fit badge. Trash icon deletes a model (`ollama rm`), an **Update** button appears when the installed model is not the latest on the Hub
-- **Available Models** — searchable list of all 192 models on [Ollama Hub](https://ollama.com/library). Sizes load lazily from the registry when scrolled into view. Each row shows a fit badge and an **Install** button
-- **Check for Updates** — compares the local digest of the default model (`sonct988/gemma4-26b-a4b-it-q4km-256k`) against the Hub manifest (SHA-256); flags when a newer version exists
-- **Update Ollama** — if installed via Homebrew, runs `brew upgrade ollama` with live output; otherwise opens the Ollama download page
-- **Done** — closes the popover
+- **Server URL** — the local oMLX server address (default `http://localhost:8000`). oMLX exposes an OpenAI-compatible API (`/v1/models`, `/v1/chat/completions`).
+- **API Key** — optional Bearer key for servers that require one.
+- **Test Connection** — calls `/v1/models`; on success shows the detected model list ("Detected: …").
+- On save the app re-runs model detection immediately.
 
-Hardware-fit badges estimate the RAM needed to run a model (model file size × 1.2 + 4GB overhead for context/OS) against your machine's unified memory:
-- **Runs well** (green) — comfortably within memory
-- **Tight** (orange) — runnable but close to the memory ceiling
-- **Too large** (red) — exceeds available memory
-- **Unknown** — size not yet known
+The app checks the server automatically on launch, every 30 seconds, and when it becomes active. If the server is unreachable, a red banner appears and the app falls back to its keyword engine for search/analysis.
 
-### Model Auto-Detection
+### Model Quality & Detail
 
-- On launch, `ollama list` is queried to populate the model dropdown
-- `selectedModel` is auto-set to the first detected model
-- If only one model is available, it's auto-selected
-- Model loaded/unloaded state is tracked across load/unload/check cycles
-- `pullModel()` sets `modelLoaded = true` after successful download
+- **`ModelCatalog`** (quality metadata) — curated tiers (S/A/B/C/ASR) and 1–5 star ratings for the common oMLX library models (e.g. Qwen3-30B-A3B = tier S, 5 stars, best-JSON; Qwen3.8-27B = tier S; Llama-3.1 8B = tier A). Unknown model ids get a generic entry so the UI never looks empty. Matching is by lowercase suffix of the model id.
+- **Model Detail popover** (info.circle) — curated card (short name, tier, stars, virtues, why-it-fits detail, context/ram labels) plus a live Hugging Face card fetch for `mlx-community/<id>` in a WebView.
+
+### Model Detection
+
+- On launch (and every 30 s, and on app-active), the app calls `/v1/models` to populate the model dropdown
+- `selectedModel` is auto-set to the first detected model (or stays at the default `Llama-3.1-8B-Instruct-4bit`)
+- If only one model is served, it's auto-selected
+- The model load state is tracked; the quality badge, tok/s meter, and model picker render only when the server is reachable
 
 ### Warning Banners
 
-- **Orange banner**: Model not loaded — "Click Load Model in the bottom bar to enable AI features"
-- **Red banner**: Ollama unavailable — "Click Setup… in the bottom bar to configure"
+- **Orange banner**: Model not loaded — "Click **Server Setup** in the bottom bar to configure"
+- **Red banner**: oMLX server not reachable — "Click **Server Setup** in the bottom bar to configure"
 - Appear below the tab picker
 
 ---
@@ -439,7 +441,7 @@ The sidebar lists all steps; a colored dot marks prompts you've customized. Each
 | AI Edit · Flow Review | Review Flow button |
 | YouTube Summary | Generate Summary — `{LENGTH}` is replaced with Short/Medium/Long at runtime |
 
-Python-backed steps receive their prompt via `--priming-prompt-file`; Swift-backed steps inject it directly into the Ollama call.
+Python-backed steps receive their prompt via `--priming-prompt-file`; Swift-backed steps inject it directly into the oMLX call (`OMLXClient.complete`). Both talk to the same local oMLX server the bottom bar is configured with.
 
 ---
 
@@ -462,14 +464,14 @@ Dismiss with Continue, Return/Enter, or Escape. Re-open via **Methodology** butt
 - **⌘+** / **⌘-** increases/decreases the app-wide text size (0.75×–1.75×, step 0.125), **⌘0** resets to 1.0
 - The scale persists across launches (`appTextScale`) and applies to every view, including the YouTube Markers / AI Summary sheets (which stack on top of their own sheet-level preview size)
 
-### Ollama Setup Sheet
+### oMLX Server Setup Sheet
 
-Auto-presents on first launch when Ollama is not found. Provides:
-- **Install Ollama…** — opens the Ollama download page
-- **Pull sonct988/gemma4-26b-a4b-it-q4km-256k** — runs `ollama pull` in the background with progress output
-- **Use Keywords Instead** — dismisses the sheet and runs without AI
+Auto-presents on first launch when the oMLX server is not reachable. Provides:
+- **Server URL** — the local oMLX server address (default `http://localhost:8000`)
+- **API Key** — optional; required only if the server enforces one
+- **Test Connection** — verifies the server and lists detected models
 
-On launch, Assistant Editor also checks the Hub for the default model (`sonct988/gemma4-26b-a4b-it-q4km-256k`): if it isn't installed, or a newer version exists, an alert offers to open the Model Manager.
+Until the server is reachable, the app runs in keyword-fallback mode (analysis, chapter creation, and search still work without any LLM).
 
 ---
 
@@ -630,7 +632,7 @@ stats:
 - `AppendToTimeline` requires a list of dicts, not a single dict (hangs API)
 - `EmbeddingEngine` serializes via `queue.sync` to avoid CoreNLP crashes under concurrency
 - `findExistingOutputs()` doesn't check old `_summary.yaml` format
-- `QwQ:32b` is a reasoning model and inherently slower than non-reasoning models — it burns tokens on internal reasoning before producing output, requiring higher timeouts (600s Python, 1200s Swift) and max_tokens 8192. For large transcripts (>500KB), the first Ollama call may consume the entire timeout
+- `QwQ:32b` is a reasoning model and inherently slower than non-reasoning models — it burns tokens on internal reasoning before producing output, requiring higher timeouts (600s Python, 1200s Swift) and max_tokens 8192. For large transcripts (>500KB), the first oMLX call may consume the entire timeout
 
 ---
 
@@ -741,7 +743,7 @@ stats:
 
 ## v1.20 Changes (Robustness Round)
 
-- **Robustness fixes** — FTS5 queries now escape metacharacters (`OR`/`AND`/`NOT`/`NEAR`, quotes, parentheses) so literal searches never silently return 0 hits; `clearAll()` resets the embedding map under its lock; Transcript Intelligence `send()` builds chat context on the main thread and only the blocking Ollama call runs off-main (no more `@Published` data race on background queues)
+- **Robustness fixes** — FTS5 queries now escape metacharacters (`OR`/`AND`/`NOT`/`NEAR`, quotes, parentheses) so literal searches never silently return 0 hits; `clearAll()` resets the embedding map under its lock; Transcript Intelligence `send()` builds chat context on the main thread and only the blocking oMLX call runs off-main (no more `@Published` data race on background queues)
 - **`--model` for processing** — the Create Chapters command passes your selected bottom-bar model to `process_srt.py`; when the installed-model check disagrees, your chosen model is used. Degraded (LLM-unavailable) runs now surface a `warning` note per file
 - **Atomic file writes** — `_chapters.yaml`, `_synopsis.txt`, and `_project.yaml` are written to a temp file and swapped in atomically, so an interrupted/power-loss write can't leave a truncated file
 - **YAML escaping hardened** — `ProjectAnalysis.save` now escapes backslashes, quotes, newlines, tabs and control chars; the parser round-trips them and normalizes CRLF/CR line endings

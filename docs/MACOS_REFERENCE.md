@@ -73,8 +73,8 @@ The macOS reference hardcodes a set of paths. These live in `PythonBridge.swift`
 - **Text scaling** (macOS has no OS-level Dynamic Type for desktop): custom `appTextScale` @AppStorage key (0.75–1.75) applied via `.scaledFont(...)` View modifiers; **⌘+ / ⌘− / ⌘0** step/reset it (hardcoded in `.commands`).
 - **Menu keyboard shortcuts** (`.commands`): ⌘, → Priming window; ⌘? → Help; **⌘1…⌘4** → tabs (dynamic, following the persisted tab order).
 - Tabs: Project Setup / AI Edit / Timeline Assist / Transcript Intelligence (Sync by Transcript was parked in v1.23 — source remains in `SyncByTranscriptTab.swift` for later restore). Tab order persisted in `tabOrder`; reorder via **right-click context menu** (SwiftUI `.onDrag/.onDrop` is unreliable on macOS — context menu is the only working approach).
-- Bottom bar: status dot, model picker (oMLX `:8000`), LLM "N tok/s" meter, Load/Unload toggle, bordered buttons (Model Manager…, Preferences…, Methodology, Setup…), ProgressView during pipeline runs.
-- Warning banners: orange "model not loaded", red "Ollama/unavailable", one-time launch alert (via `ollama list` auto-start check).
+- Bottom bar: server status dot, **Server Setup…** sheet (oMLX URL + API key + test connection), **oMLX** app-launch button, model picker (oMLX `/v1/models`), ModelQualityBadge, info.circle model-detail popover, LLM "N tok/s" meter, bordered buttons (Preferences…, Methodology), ProgressView during pipeline runs.
+- Warning banners: orange "model not loaded", red "oMLX server not reachable" — both point at **Server Setup…**; no server auto-start (the user launches oMLX).
 
 ---
 
@@ -131,5 +131,5 @@ Resolve's `AddMarker` fails for Gold/Peach/Chocolate/Lime. `COLOR_MAP` remaps: T
 1. **Ask-user-first folder model** — no store loads at app launch. Each tab restores its last-picked folders from `@AppStorage` but loads data only on folder pick (or the one-time AI Edit auto-restore, fingerprint-guarded).
 2. **Per-tab store isolation** — Domains never share `SubtitleStore`/`DocumentStore` instances; cache filenames are tab-namespaced (`tl`/`ti`/`ai`/`app`) so SQLite connections never contend cross-tab.
 3. **ESC cancel** — local `NSEvent` monitor cancels chat (AssistantStore) and Python pipelines (`PythonBridge.cancelRunning()`).
-4. **Local-only AI** — every LLM call goes to the local oMLX/Ollama server; nothing leaves the machine.
+4. **Local-only AI** — every LLM call goes to the local oMLX server; nothing leaves the machine.
 5. **Think stripping** — reasoning models produce `thinking` blocks; all responses run through `stripThinkBlocks` before JSON parsing.

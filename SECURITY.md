@@ -2,7 +2,7 @@
 
 ## Project scope
 
-Assistant Editor is a **local-first desktop application**. All AI processing (LLM calls, embeddings) runs on the user's own machine via a local server (oMLX or Ollama) — no data leaves the computer, and there is no cloud backend or telemetry.
+Assistant Editor is a **local-first desktop application**. All AI processing (LLM calls, embeddings) runs on the user's own machine via the local oMLX server — no data leaves the computer, and there is no cloud backend or telemetry.
 
 This repository is the **cross-platform porting source** for a macOS reference app. The reference app is not distributed through a public store; it is built and run by the author and authorized collaborators.
 

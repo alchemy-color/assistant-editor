@@ -4,19 +4,15 @@ Every AI step in Assistant Editor runs **locally**. There is no cloud endpoint. 
 
 ---
 
-## 1. The two built-in backends
+## 1. The LLM backend
 
-### oMLX (macOS default)
-- Base URL `http://localhost:8000`, OpenAI-compatible `/v1/chat/completions`.
-- Default model on the reference machine: `Llama-3.1-8B-Instruct-4bit`.
-- Config surfaced in the app UI: `omlxBaseURL`, `omlxAPIKey`, `selectedModel` (UserDefaults).
+### oMLX (the only macOS backend)
+- Base URL `http://localhost:8000`, OpenAI-compatible API (`/v1/models`, `/v1/chat/completions`).
+- Default model: `Llama-3.1-8B-Instruct-4bit`.
+- Config surfaced in the app: `omlxBaseURL`, `omlxAPIKey`, `selectedModel` (UserDefaults), plus the bottom-bar **Server Setup…** sheet (URL + API key + Test Connection).
+- oMLX caches models in memory between requests, so the old Ollama dials (`keep_alive`, `num_ctx`) are absent — and `think`/`num_ctx` have no oMLX equivalent and are deliberately dropped from the client.
 
-### Ollama
-- Base URL `http://localhost:11434`, also OpenAI-compatible.
-- The bottom-bar model picker enumerates Ollama models via `ollama list` (CLI) / `GET /api/tags`.
-- Modern call sites send `keep_alive`, `format` (JSON schema), `num_ctx`, `temperature`, `think: false` where applicable.
-
-> Because both run local agents, a port can pick the server that runs best on its OS (macOS → oMLX; Linux/Win → Ollama or llama.cpp server) and just **change the base URL in config**. The OpenAI `/v1` shape is invariant.
+> A port to Linux/Windows can point the same OpenAI `/v1` contract at Ollama or a llama.cpp/vLLM server by changing the base URL in config. The OpenAI `/v1` shape is invariant; see the porting guides.
 
 ---
 
@@ -25,9 +21,9 @@ Every AI step in Assistant Editor runs **locally**. There is no cloud endpoint. 
 `PythonBridge` (Swift) injects into **every** subprocess invocation:
 - `OMLX_BASE_URL` (from app config; default `http://localhost:8000`)
 - `OMLX_API_KEY`
-- `OLLAMA_BASE` (optional alternate)
+- `OLLAMA_BASE` (legacy alias, set to the same value as `OMLX_BASE_URL`)
 
-`process_srt.py`/`analyze_project.py` read these env vars and call `{OMLX_BASE_URL}/v1/chat/completions` (or `/api/generate` if an Ollama-style URL). **This is why the port guides stress passing these env vars explicitly** — Windows/Linux subprocesses don't inherit a macOS shell profile.
+`process_srt.py`/`analyze_project.py` read these env vars and call `{OMLX_BASE_URL}/v1/chat/completions` (and `/v1/models` for health checks). **This is why the port guides stress passing these env vars explicitly** — Windows/Linux subprocesses don't inherit a macOS shell profile.
 
 A port should keep the same env-var contract so the scripts never need a code change.
 
@@ -39,10 +35,10 @@ A port should keep the same env-var contract so the scripts never need a code ch
 - Messages: `system` + `user` (RAG context block + instructions).
 - Common fields:
   - `model`: current `selectedModel`.
-  - `temperature`: mostly 0.4–0.7; chapter/synopsis lower.
-  - `keep_alive: 300` (warm the model between steps).
-  - `num_ctx`: 8192 (chat/summary) to 16384 (script parsing).
-  - `think: false` on reasoning-capable models, plus client-side `stripThinkBlocks` (cuts at last ` response`, removes leftover `thinking` pairs — tolerates partial blocks).
+  - `temperature`: 0.2–0.4 for structured steps (Find Clips 0.2, Review/Parse lower), 0.4 for summaries, 0.3 for chat.
+  - `max_tokens`: 2048–4096 by step.
+  - `stream: false`.
+  - Reasoning-capable models: client-side `stripThinkBlocks` (cuts at last ` response`, removes leftover `thinking` pairs — tolerates partial blocks). No `think: false` flag is sent.
 - **Grammar-constrained outputs:** Parse Script, Find Clips, Review Flow send `response_format: json_schema` (schema for beats, clip selections, flow notes). Malformed JSON is then nearly impossible; a `repairJSON()` fallback + validated first-{…}-last-} slice still guard the older paths.
 - Error handling: empty 200-responses = model still loading mid-call (distinct message); timeouts per-step (600s parse, etc.).
 
@@ -56,9 +52,9 @@ The app exposes each as an independently editable "priming" prompt in the Primin
 |---|---|---|
 | `priming_projectAnalysis` | Project Setup → Analyze/Regenerate (→ analyze_project.py via `--priming-prompt-file`) | themes/keywords/weights extraction |
 | `priming_chaptersSynopsis` | processing interviews (→ process_srt.py via `--priming-prompt-file`) | chapter names/notes + synopsis prose |
-| `priming_searchInterpretation` | Timeline Assist prompt-bar Send (Ollama system) | query → search terms |
+| `priming_searchInterpretation` | Timeline Assist prompt-bar Send (oMLX system) | query → search terms |
 | `priming_transcriptChat` | Transcript Intelligence chat (prepended to context block) | RAG answer style, grounding, timecodes |
-| `priming_promptSort` | Prompt Sort option (Ollama system) | narrative reorder of results |
+| `priming_promptSort` | Prompt Sort option (oMLX system) | narrative reorder of results |
 | `priming_scriptParsing` | AI Edit Auto-fill from text (prompt head) | script → beats (searchQueries/targetDuration/mood); camera/imagined visuals forbidden; queries are topic phrases likely in speech |
 | `priming_clipSelection` | AI Edit Find Clips | candidates listed verbatim (interview·timecode·speaker·200 chars) + per-interview synopsis excerpts; picks ≤N with reasons (schema-constrained) |
 | `priming_flowReview` | AI Edit Review Flow | script prefix + included clips grouped by beat; severity warning/info; language judgment only, no timecode math |
@@ -102,4 +98,4 @@ Transcript Intelligence chat context = **KnowledgeStore summaries** (pre-compute
 
 - If the LLM is unavailable, `process_srt.py` degrades to **keyword-frequency chapter detection** + notes fallback and sets `out["warning"] = "LLM unavailable — keyword fallback"` (+ `DEGRADED_REASON`); the UI turns the status orange. **Do not** make chapter generation hard-fail on LLM absence.
 - `analyze_project.py` likewise falls back to keyword-frequency themes (producing exact fractions like `7/28` — a signature of fallback mode).
-- The app shows an orange "model not loaded" banner and a red "Ollama unavailable" banner, and auto-starts Ollama via `ollama list` if the API is unreachable.
+- The app shows an orange "model not loaded" banner and a red "oMLX server not reachable" banner, both pointing at **Server Setup…** in the bottom bar. There is no server auto-start: if the oMLX server is down, the keyword fallback kicks in until the user launches oMLX.

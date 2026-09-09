@@ -19,7 +19,7 @@ This repository is the **cross-platform porting source**. The reference implemen
 3. **Timeline Assist** — search both subtitles and transcripts (FTS5 exact + semantic), generate per-interview chapter markers and synopses via LLM, assemble a DaVinci Resolve timeline from search hits with colored clip groups and gap video.
 4. **Transcript Intelligence** — RAG chat against transcripts + markers using a local LLM; pre-computed per-interview knowledge base.
 
-All AI runs **on-machine** — no cloud API. Two interchangeable local LLM backends are supported: **oMLX** (OpenAI-compatible server on port 8000) and **Ollama**.
+All AI runs **on-machine** — no cloud API. The LLM backend is the local **oMLX** server (OpenAI-compatible API on port 8000); any model you load into oMLX is usable. (Ports to Linux/Windows can point the same OpenAI `/v1` contract at Ollama — see `docs/LLM_BACKEND.md` and the porting guides.)
 
 ---
 
@@ -33,8 +33,10 @@ open Releases/Assistant\ Editor.app        # first time: right-click → Open in
 #    or clear the quarantine outright:
 #    xattr -dr com.apple.quarantine "Releases/Assistant Editor.app"
 
-# 2. Install a local LLM
-brew install ollama && ollama pull sonct988/gemma4-26b-a4b-it-q4km-256k
+# 2. Install a local LLM server
+brew tap jundot/omlx https://github.com/jundot/omlx && brew install jundot/omlx/omlx   # or the DMG from github.com/jundot/omlx/releases
+#    launch oMLX and load a model (e.g. "Llama-3.1-8B-Instruct-4bit") —
+#    the app picks up any model the server serves on localhost:8000/v1
 
 # 3. DaVinci Resolve (Studio or Free) for timeline/marker creation
 
@@ -69,7 +71,7 @@ assistant-editor/
 │   ├── FILE_FORMATS.md     ← SRT/SRTX/TXT/_chapters.yaml/_synopsis.txt/_project.yaml
 │   ├── DEPENDENCIES.md     ← runtime deps (LLM server, SQLite-FTS5, ffmpeg, Resolve)
 │   ├── STORAGE.md          ← UserDefaults keys, cache files, database schema
-│   └── LLM_BACKEND.md      ← LLM API contract (oMLX/Ollama) + prompt inventory
+│   └── LLM_BACKEND.md      ← LLM API contract (oMLX) + prompt inventory
 ├── Releases/
 │   ├── Assistant Editor.app ← latest prebuilt macOS app (v1.24, ad-hoc signed)
 │   └── README.md            ← how to run / zip / distribute the bundle
@@ -98,7 +100,7 @@ xcodebuild -project "Assistant Editor.xcodeproj" -scheme "Assistant Editor" buil
 ```
 
 Runtime needs before first use:
-- **oMLX** or **Ollama** running locally with a compatible model pulled (see `docs/LLM_BACKEND.md`).
+- **oMLX** running locally with a model loaded (see `docs/LLM_BACKEND.md`).
 - **DaVinci Resolve** (Studio or Free) if you want timeline/marker creation.
 - **ffmpeg/ffprobe** for frame-rate detection and gap-clip generation.
 
@@ -113,7 +115,7 @@ Runtime needs before first use:
 | NLP embeddings | `NLEmbedding` (macOS-only) | `fastembed` / `onnxruntime` / local model | Same |
 | Subprocess runner | `PythonBridge` (Foundation.Process) | `std::process` / `child_process` | `System.Diagnostics.Process` |
 | SQLite+FTS5 | `SQLite3` C binding | `sqlite3` (same file-format, lib available) | same |
-| LLM server | oMLX/Ollama local | same (cross-platform servers) | same |
+| LLM server | oMLX (OpenAI `/v1`, localhost:8000) | Ollama/llama.cpp server (same `/v1` contract) | Ollama (Windows native) |
 | Resolve automation | macOS module path + GUI script bridge | Linux Resolve module path | Windows module path + `.so`/`.dll` |
 | File dialogs | NSOpenPanel/NSSavePanel | GTK/Qt native | Win32 common dialogs |
 

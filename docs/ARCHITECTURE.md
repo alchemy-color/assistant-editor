@@ -27,8 +27,8 @@ This document describes the reference **macOS** implementation in enough detail 
 └──────┬──────────────────────────────┬───────────────────────┘
        │ HTTP (OpenAI /v1)             │ DaVinci Resolve scripting API
        ▼                              ▼
-   oMLX / Ollama              DaVinci Resolve (Fusion)
-   (local LLM server)         + FTS5 SQLite + ffmpeg
+   oMLX                    DaVinci Resolve (Fusion)
+   (local LLM server)      + FTS5 SQLite + ffmpeg
 ```
 
 Key insight for porters: **the UI layer and the Python pipeline only talk over a well-defined JSON contract** (implemented by `PythonBridge` on the Swift side). That boundary is where the port lives.
@@ -66,7 +66,7 @@ Timeline Assist, Transcript Intelligence, and AI Edit each own their **own** `Su
 ### 3.2 AI Edit (`AIEditTab.swift` + `AIEditStore.swift`)
 Pipeline: author beats in the structured left panel (or paste a treatment + **Auto-fill from text**) → **Create Edit** (Find Clips across all beats) → Review Flow (optional LLM continuity pass) → Create Timeline in Resolve.
 - Retrieval is **material-driven**: the script gives structure, transcripts give content. Stage A builds a candidate pool (beat queries + content words + project theme keywords), Stage B lets the LLM pick ≤N with reasons, Stage C snaps to subtitle cues.
-- Schemas are LLM-constrained (`format:` JSON schema on the oMLX call, `response_format` json_schema) to prevent malformed JSON.
+- Schemas are LLM-constrained (`response_format: json_schema`) to prevent malformed JSON.
 - Session autosaved to `@AppStorage("aiEditSessionJSON")`.
 
 ### 3.3 Timeline Assist (`ProcessTimelineTab.swift`)
@@ -139,11 +139,10 @@ Search = FTS5 exact (`ftsQueryString` quotes each term + trailing `*`, escaping 
 
 ## 7. LLM integration (see `LLM_BACKEND.md`)
 
-Two equivalent local backends, both OpenAI-compatible `/v1`:
-- **oMLX** (default) — `http://localhost:8000`. Default model `Llama-3.1-8B-Instruct-4bit`. Base URL + API key in UserDefaults (`omlxBaseURL`, `omlxAPIKey`).
-- **Ollama** — `http://localhost:11434` (legacy path; a `keep_alive`, `format` schema field, and `num_ctx` may be used in some call sites).
+One local backend, OpenAI-compatible `/v1`:
+- **oMLX** (the only macOS backend) — `http://localhost:8000`. Default model `Llama-3.1-8B-Instruct-4bit`. Base URL + API key in UserDefaults (`omlxBaseURL`, `omlxAPIKey`). oMLX caches models in memory, so the retired Ollama dials (`keep_alive`, `format` schema field, `num_ctx`, `think`) are dropped.
 
-The condition is strict: **the Python scripts and the Swift code both target the OpenAI `/v1/chat/completions` contract**, injecting `OMLX_BASE_URL`/`OMLX_API_KEY` into every subprocess so scripts hit the same server the UI uses. Any OpenAI-compatible local server (vLLM, llama.cpp server, LM Studio, etc.) also works.
+The condition is strict: **the Python scripts and the Swift code both target the OpenAI `/v1/chat/completions` contract**, injecting `OMLX_BASE_URL`/`OMLX_API_KEY` into every subprocess so scripts hit the same server the UI uses. Any OpenAI-compatible local server (vLLM, llama.cpp server, LM Studio, Ollama on a Linux/Windows port, etc.) also works with the same base-URL swap.
 
 ---
 

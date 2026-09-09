@@ -15,9 +15,8 @@ What the app needs at runtime, per environment, and what each one is for. Keep t
 | **ffmpeg + ffprobe** | any recent | frame-rate detection, black gap-clip synthesis for timeline gaps | must be on PATH (macOS prepends `/opt/homebrew/bin`); Windows gyan.dev build or winget; Linux apt |
 
 ### LLM server options
-- **oMLX** — default on macOS (Apple-silicon), OpenAI-compatible, `http://localhost:8000`.
-- **Ollama** — macOS/Linux/Windows native, `http://localhost:11434`, also exposes OpenAI-compatible API. The app's bottom-bar model picker talks to Ollama (`ollama list`) when present.
-- **Any OpenAI-compatible server** — vLLM, llama.cpp server, LM Studio, etc. — works as long as it speaks `/v1/chat/completions`.
+- **oMLX** — the only macOS backend (Apple-silicon), OpenAI-compatible, `http://localhost:8000`. The bottom-bar **Server Setup…** sheet points the app at it.
+- **Any OpenAI-compatible server** — vLLM, llama.cpp server, LM Studio, and on Linux/Windows ports Ollama — works as long as it speaks `/v1/chat/completions`, by swapping the base URL in config.
 
 ---
 
@@ -67,7 +66,7 @@ Not needed for analysis/search/chat. Required for: Timeline Assist timeline crea
 |---|---|---|
 | `OMLX_BASE_URL` | process_srt, analyze_project (Python); ports should mirror | LLM base URL (default `http://localhost:8000`) |
 | `OMLX_API_KEY` | same | optional LLM API key |
-| `OLLAMA_BASE` | process_srt (secondary) | alternate LLM base URL |
+| `OLLAMA_BASE` | process_srt (legacy) | alias for `OMLX_BASE_URL` (kept for older configs) |
 | `AE_FPS` | sync_transcripts / export_sync_edl / build_sync_timeline | timeline frame rate (default 25) |
 | `RESOLVE_SCRIPT_API` | create_timeline / write_resolve / build_sync_timeline | Resolve scripting modules dir |
 | `RESOLVE_SCRIPT_LIB` | same | Resolve fusion lib path |
@@ -79,6 +78,6 @@ Not needed for analysis/search/chat. Required for: Timeline Assist timeline crea
 
 | Tool | Purpose |
 |---|---|
-| **ollama CLI** | used by Model Manager (`ollama list`, `ollama pull`, `ollama rm`) and by the app to auto-start the server |
+| **oMLX server** | required runtime — the LLM backend; `Server Setup…` in the bottom bar configures the URL/API key |
 | **detectFrameRate** | tries ffprobe first, timecode heuristic fallback; needs no extra deps |
 | **DocumentStore** | pure filesystem; no DB |

@@ -15,7 +15,7 @@ The app's UI layer never does the heavy lifting — it shells out to Python scri
   - `OMLX_API_KEY` — optional API key for the LLM server.
   - `AE_FPS` — timeline frame rate for sync/EDL math (default `25`).
   - `RESOLVE_SCRIPT_API` / `RESOLVE_SCRIPT_LIB` — overrides for the Resolve module/library path.
-  - `OLLAMA_BASE` — optional alternative LLM base URL (process_srt checks both).
+  - `OLLAMA_BASE` — legacy alias, set to the same value as `OMLX_BASE_URL` (kept for older port configs).
 - **File-family relations** (all scripts know these): a subtitle `.srtx`/`.srt` optional pair is its `_subtitles` sibling; a transcript pairs at `<base>_transcript.txt` **or** `<base>_transcripts.txt` (plural accepted everywhere since v1.18).
 
 ---
@@ -29,7 +29,7 @@ Checks/first-arg special:
 
 Behavior:
 - Reads the SRT/SRTX/TXT file, parses via the robust timecode-line parser, computes per-chapter cues.
-- **LLM path:** calls the local server (oMLX/Ollama) with the (customizable) chapters priming; produces `markers` array + synopsis prose. Grammar-constrained JSON (`response_format: json_schema`) when available.
+- **LLM path:** calls the local oMLX server (`OMLX_BASE_URL`, OpenAI-compatible `/v1/chat/completions`) with the (customizable) chapters priming; produces `markers` array + synopsis prose. Grammar-constrained JSON (`response_format: json_schema`) when available.
 - **Keyword-fallback path:** when the LLM is unavailable, falls back to keyword-frequency chapter extraction and flags `DEGRADED_REASON` in the output (`warning` field).
 - Writes `_chapters.yaml` (interview metadata + chapter markers) and `_synopsis.txt` (header + optional Intro/Paragraphs/Bullets/Timecode sections) **atomically** (temp file + `os.replace` + `os.fsync`).
 - `--transcript` passes the paired transcript for richer LLM context; chapter timecodes snap to subtitle boundaries.

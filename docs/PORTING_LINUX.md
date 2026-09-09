@@ -42,7 +42,7 @@ The reference app is macOS SwiftUI. This guide gives a complete, opinionated por
 | PyYAML | parse/write `_chapters.yaml` etc. | `pip install pyyaml` or `apt install python3-yaml` |
 | SQLite 3.35+ (with FTS5) | search DBs | bundled with Python `sqlite3` on most distros (check FTS5 is compiled in) |
 | ffmpeg + ffprobe | frame-rate detection, gap video | `apt install ffmpeg` |
-| An LLM server | all AI steps | [oMLX](https://github.com/...) or [Ollama](https://ollama.com) — Linux supported natively by both |
+| An LLM server | all AI steps | [oMLX](https://github.com/jundot/omlx) or [Ollama](https://ollama.com) — Linux supported natively by both |
 | DaVinci Resolve for Linux | timeline/marker ops | [Blackmagic Design download](https://www.blackmagicdesign.com/products/davinciresolve) |
 | An embedding provider | semantics (see §5) | `fastembed` + `onnxruntime` or an embedding route |
 
