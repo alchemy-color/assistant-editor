@@ -41,7 +41,7 @@ cp -R "<DerivedData>/Assistant Editor.app" "dist/Assistant Editor.app"
 codesign --force --sign - "dist/Assistant Editor.app"   # ad-hoc -> runs locally
 open "dist/Assistant Editor.app"
 ```
-- Versioned snapshots live in `dist/v1/`, `dist/v1.1/`, …, `dist/v1.21/` — each holds the project source, the built `.app`, standalone Python scripts, and `docs/` (README, CHANGELOG, MANUAL). **Never overwrite a versioned folder**; only `dist/Assistant Editor.app` and `dist/MANUAL.md` are updated in place (current release: v1.23).
+- Versioned snapshots live in `dist/v1/`, `dist/v1.1/`, …, `dist/v1.21/` — each holds the project source, the built `.app`, standalone Python scripts, and `docs/` (README, CHANGELOG, MANUAL). **Never overwrite a versioned folder**; only `dist/Assistant Editor.app` and `dist/MANUAL.md` are updated in place (current release: v1.24).
 
 ---
 

@@ -1,6 +1,6 @@
 # Porting Assistant Editor to Windows
 
-Reference: macOS SwiftUI app (v1.23). This is the complete Windows porting plan. Recommended stack: **Rust + Tauri** (same as the Linux guide, so both platforms can share one Rust core), or **C# + WPF/WinUI** if you prefer the Windows-native route. The Python pipeline is reused unchanged on both. Note: the macOS app no longer ships the Sync-by-Transcript tab (parked in v1.23); its source and scripts remain for later restoration.
+Reference: macOS SwiftUI app (v1.24). This is the complete Windows porting plan. Recommended stack: **Rust + Tauri** (same as the Linux guide, so both platforms can share one Rust core), or **C# + WPF/WinUI** if you prefer the Windows-native route. The Python pipeline is reused unchanged on both. Note: the macOS app no longer ships the Sync-by-Transcript tab (parked in v1.23); its source and scripts remain for later restoration.
 
 ---
 

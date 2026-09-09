@@ -4,15 +4,25 @@ All notable changes to this project's **macOS reference app** are documented her
 
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project does **not** follow semantic versioning (internal build numbering).
 
-## [Unreleased]
+## [v1.24] — 2026-09-09
 
-### Added (v1.24 — AI-Edit UI polish, in progress)
-- Timeline metadata block at the top of the AI-Edit left panel: timeline name, editable estimated length, "include timestamp", and a multiline **Intent** field (persisted in sessions).
-- Beat cards expand by default with larger text (headline title / subheadline description) and a visible trash icon.
-- Drag-and-drop reordering of beats (Move Up/Down menu retained as fallback).
-- Full **Undo/Redo** for beat changes — adds, deletes, reorders, drag-drops, typed edits; "Auto-fill from text" is a single undo point.
-- Right-panel BeatRows simplified to title + clips only.
-- Fixed a crash when deleting a beat (stale array-index binding during SwiftUI row removal).
+### Changed
+- **Unified project bar on every tab** — `Source Folder(s) | Materials`, a three-row grid separated by a thin fixed divider: row 1 the two section labels, row 2 the add/re-read/clear actions with the tab's status caption inline next to the materials totals, row 3 the folder chips beside a `subfolders ▾` toggle that opens the material tree on demand. The bar stays ~71pt collapsed regardless of loaded material. (The plain `Divider()` originally inflated the bar several-fold taller — now a fixed-height hairline.)
+- **AI Edit panels renamed Script Beats / Timeline Beats** — left authors beats with a big Add Beat CTA + Auto-fill from Text in its empty state; right shows each beat as a timeline cell with a passive hint when empty. The footer + Add Beat / Remove all (bigger buttons) appears only once beats exist.
+- **Undo/redo buttons removed** from the beat footer (snapshot-based undo remains internally; Auto-fill is a single undo point).
+- **Save / Load an edit** — the Script Beats header's `square.and.arrow.down` writes the whole session (name, timestamp flag, estimated seconds, intent, treatment, beats, clip results) to `<timeline name>_timeline.yaml` in the first work folder; `square.and.arrow.up` lists saved edits (or **Open…**) and replaces the session after confirmation. Saved edits surface as a **`N tl`** badge in the project bar.
+- **Timeline metadata block** above the Treatment drawer — timeline name, editable estimated seconds, "Append timestamp (_HHMMSS)" checkbox, multiline **Intent** field.
+- **Project Setup decluttered** — Analyze / Regenerate Themes lives in the Weighing header (spinner + thin progress strip); the empty state has its own Analyze button.
+- **Single title on every tab** — per-tab repeated heading rows removed; each tab starts directly with its project bar.
+- **Chapter density & split verbosity** — Timeline Assist gains a Chapter density slider plus separate Chapters / Synopsis verbosity sliders under a "Usage" caption.
+
+### Added
+- `docs/MANUAL.md` — the full v1.24 user manual (every tool, ticker and slider), live in the repo.
+- `Releases/Assistant Editor.app` — prebuilt macOS app bundle + `Releases/README.md` with run/zip/distribute instructions.
+
+### Fixed
+- Crash when deleting a beat (stale array-index binding during SwiftUI row removal) — getter returns an inert placeholder when the index is out of range.
+- Project bar stretching to ~320pt: vertical `Divider` is flexible-height and inflated with the tab's tall proposal; replaced with a fixed 1×40 separator.
 
 ## [v1.23] — 2026-09-09
 

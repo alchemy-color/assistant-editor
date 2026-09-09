@@ -8,7 +8,7 @@
 
 This repository is the **cross-platform porting source**. The reference implementation is a native macOS SwiftUI app; the goal of this repo is to enable third-party developers to produce **Linux and Windows** versions while reusing as much of the existing code as possible — especially the platform-neutral Python pipeline.
 
-> **Status:** macOS reference app is complete (v1.23, structured AI-Edit editor; Sync-by-Transcript parked; v1.24 AI-Edit UI polish). Linux/Windows ports are **not built yet** — this repo contains the reference source, the Python pipeline, and detailed porting guides.
+> **Status:** macOS reference app is complete (v1.24 — unified project bar, Script Beats / Timeline Beats editor, Save/Load edit archive; Sync-by-Transcript parked). A prebuilt Intel-agnostic macOS app bundle ships in `Releases/`. Linux/Windows ports are **not built yet** — this repo contains the reference source, the Python pipeline, and detailed porting guides.
 
 ---
 
@@ -20,6 +20,28 @@ This repository is the **cross-platform porting source**. The reference implemen
 4. **Transcript Intelligence** — RAG chat against transcripts + markers using a local LLM; pre-computed per-interview knowledge base.
 
 All AI runs **on-machine** — no cloud API. Two interchangeable local LLM backends are supported: **oMLX** (OpenAI-compatible server on port 8000) and **Ollama**.
+
+---
+
+## Quick start (try the app)
+
+A prebuilt macOS app already sits in this repo:
+
+```bash
+# 1. Grab the bundle (it's ad-hoc signed — macOS will quarantine it)
+open Releases/Assistant\ Editor.app        # first time: right-click → Open instead
+#    or clear the quarantine outright:
+#    xattr -dr com.apple.quarantine "Releases/Assistant Editor.app"
+
+# 2. Install a local LLM
+brew install ollama && ollama pull sonct988/gemma4-26b-a4b-it-q4km-256k
+
+# 3. DaVinci Resolve (Studio or Free) for timeline/marker creation
+
+# 4. The manual is in-app (⌘?) or at docs/MANUAL.md — read the "Getting Started" section
+```
+
+The bundle in `Releases/` is the latest build; for shareable distribution see `Releases/README.md` (zip it and attach to a GitHub Release).
 
 ---
 
@@ -38,15 +60,19 @@ assistant-editor/
 │   ├── FUNDING.yml
 │   └── workflows/           ← macOS CI smoke build (XcodeGen + xcodebuild)
 ├── docs/
-│   ├── ARCHITECTURE.md      ← components, stores, data flow, IPC
-│   ├── MACOS_REFERENCE.md   ← macOS build/deploy, hardcoded paths, Resolve bridge, shortcuts
-│   ├── PORTING_LINUX.md     ← full Linux porting strategy
-│   ├── PORTING_WINDOWS.md   ← full Windows porting strategy
+│   ├── MANUAL.md           ← full user manual (v1.24 — every tool, ticker, slider)
+│   ├── ARCHITECTURE.md     ← components, stores, data flow, IPC
+│   ├── MACOS_REFERENCE.md  ← macOS build/deploy, hardcoded paths, Resolve bridge, shortcuts
+│   ├── PORTING_LINUX.md    ← full Linux porting strategy
+│   ├── PORTING_WINDOWS.md  ← full Windows porting strategy
 │   ├── SCRIPT_INTERFACES.md ← Python script stdin/stdout contracts
-│   ├── FILE_FORMATS.md      ← SRT/SRTX/TXT/_chapters.yaml/_synopsis.txt/_project.yaml
-│   ├── DEPENDENCIES.md      ← runtime deps (LLM server, SQLite-FTS5, ffmpeg, Resolve)
-│   ├── STORAGE.md           ← UserDefaults keys, cache files, database schema
-│   └── LLM_BACKEND.md       ← LLM API contract (oMLX/Ollama) + prompt inventory
+│   ├── FILE_FORMATS.md     ← SRT/SRTX/TXT/_chapters.yaml/_synopsis.txt/_project.yaml
+│   ├── DEPENDENCIES.md     ← runtime deps (LLM server, SQLite-FTS5, ffmpeg, Resolve)
+│   ├── STORAGE.md          ← UserDefaults keys, cache files, database schema
+│   └── LLM_BACKEND.md      ← LLM API contract (oMLX/Ollama) + prompt inventory
+├── Releases/
+│   ├── Assistant Editor.app ← latest prebuilt macOS app (v1.24, ad-hoc signed)
+│   └── README.md            ← how to run / zip / distribute the bundle
 ├── source/
 │   ├── Swift/               ← 29 .swift files (macOS reference UI/logic)
 │   └── Python/              ← 17 .py scripts (platform-neutral pipeline)
